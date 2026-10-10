@@ -79,6 +79,8 @@ Os testes cobrem peças coincidentes, dimensões de componentes rotacionados, es
 
 Resultados e verificação com o GLB ECBR: [docs/VERIFICACAO.md](docs/VERIFICACAO.md).
 
+Estudo comparativo dos quatro modelos ECBR, SHELL e LOTERIAS: [docs/ESTUDO_GLB.md](docs/ESTUDO_GLB.md).
+
 ## Próximas entregas
 
 1. Padrões construtivos parametrizados e validados para paredes, testeiras e balcões.
