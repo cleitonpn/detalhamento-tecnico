@@ -1,0 +1,25 @@
+// Somente para uma instalação independente ou emuladores.
+rules_version = '2';
+service firebase.storage { match /b/{bucket}/o {
+// Adicionar dentro de match /b/{bucket}/o nas regras de Storage compartilhadas.
+function dtStorageMember(workspaceId) {
+  return request.auth != null
+    && firestore.exists(/databases/(default)/documents/dt_workspaces/$(workspaceId)/members/$(request.auth.uid))
+    && firestore.get(/databases/(default)/documents/dt_workspaces/$(workspaceId)/members/$(request.auth.uid)).data.active == true
+    && firestore.get(/databases/(default)/documents/dt_workspaces/$(workspaceId)/members/$(request.auth.uid)).data.role in ['owner','editor','viewer'];
+}
+match /dt_workspaces/{workspaceId}/projects/{projectId}/models/{filename} {
+  allow read: if dtStorageMember(workspaceId);
+  allow create: if resource == null && dtStorageMember(workspaceId)
+    && firestore.get(/databases/(default)/documents/dt_workspaces/$(workspaceId)/members/$(request.auth.uid)).data.role in ['owner','editor']
+    && filename.matches('^[a-f0-9]{64}\\.glb$')
+    && firestore.exists(/databases/(default)/documents/dt_workspaces/$(workspaceId)/uploads/$(projectId + '_' + filename))
+    && firestore.get(/databases/(default)/documents/dt_workspaces/$(workspaceId)/uploads/$(projectId + '_' + filename)).data.uid == request.auth.uid
+    && firestore.get(/databases/(default)/documents/dt_workspaces/$(workspaceId)/uploads/$(projectId + '_' + filename)).data.expiresAtMs > request.time.toMillis()
+    && request.resource.size == firestore.get(/databases/(default)/documents/dt_workspaces/$(workspaceId)/uploads/$(projectId + '_' + filename)).data.bytes
+    && request.resource.size <= 50 * 1024 * 1024
+    && request.resource.contentType == 'model/gltf-binary';
+  allow update, delete: if false;
+}
+
+} }

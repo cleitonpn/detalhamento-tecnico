@@ -1,0 +1,71 @@
+name: Publicar detalhamento (manual)
+on:
+  workflow_dispatch:
+    inputs:
+      project_id:
+        description: Projeto Firebase de destino
+        required: true
+        default: personalizacao-stand
+      site_id:
+        description: ID do site NOVO (não usar o site do Studio)
+        required: true
+      mode:
+        description: Modo de armazenamento do frontend
+        type: choice
+        options: [local, firebase]
+        default: local
+      publish_functions:
+        description: Publicar a codebase detalhamento
+        type: boolean
+        default: true
+permissions:
+  contents: read
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      DT_PROJECT: ${{ inputs.project_id }}
+      DT_SITE: ${{ inputs.site_id }}
+      VITE_STORAGE_MODE: ${{ inputs.mode }}
+      VITE_APP_NAME: ${{ vars.APP_NAME || 'Detalha' }}
+      VITE_FIREBASE_API_KEY: ${{ vars.FIREBASE_API_KEY }}
+      VITE_FIREBASE_AUTH_DOMAIN: ${{ vars.FIREBASE_AUTH_DOMAIN }}
+      VITE_FIREBASE_PROJECT_ID: ${{ inputs.project_id }}
+      VITE_FIREBASE_STORAGE_BUCKET: ${{ vars.FIREBASE_STORAGE_BUCKET }}
+      VITE_FIREBASE_APP_ID: ${{ vars.FIREBASE_APP_ID }}
+      VITE_WORKSPACE_ID: ${{ vars.WORKSPACE_ID || 'uset' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Validar destino e configuração
+        run: |
+          node --input-type=module - <<'JS'
+          const {DT_PROJECT:p,DT_SITE:s,VITE_STORAGE_MODE:mode,VITE_FIREBASE_API_KEY:key,VITE_FIREBASE_APP_ID:app}=process.env;
+          if(!/^[a-z][a-z0-9-]{4,62}$/.test(p||'')||!/^[a-z0-9-]{4,63}$/.test(s||''))throw Error('Projeto ou site inválido.');
+          if(s===p||s==='personalizacao-stand')throw Error('Informe um site próprio para o detalhamento.');
+          if(mode==='firebase'&&(!key||!app))throw Error('Configure as variáveis públicas FIREBASE_API_KEY e FIREBASE_APP_ID.');
+          JS
+      - run: npm ci && npm --prefix functions ci
+      - run: npm test && npm run test:server && npm run build
+      - name: Preparar credencial de publicação
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: |
+          test -n "$FIREBASE_SERVICE_ACCOUNT"
+          printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$RUNNER_TEMP/detalhamento-sa.json"
+          echo "GOOGLE_APPLICATION_CREDENTIALS=$RUNNER_TEMP/detalhamento-sa.json" >> "$GITHUB_ENV"
+      - name: Associar site próprio
+        run: |
+          npx firebase hosting:sites:get "$DT_SITE" --project "$DT_PROJECT" --non-interactive
+          npx firebase target:apply hosting detalhamento "$DT_SITE" --project "$DT_PROJECT" --non-interactive
+      - name: Publicar Functions da aplicação
+        if: inputs.publish_functions
+        run: npx firebase deploy --config firebase.shared.json --only functions:detalhamento --project "$DT_PROJECT" --non-interactive
+      - name: Publicar site próprio
+        run: npx firebase deploy --config firebase.shared.json --only hosting:detalhamento --project "$DT_PROJECT" --non-interactive
+      - name: Remover arquivo de credencial
+        if: always()
+        run: rm -f "$RUNNER_TEMP/detalhamento-sa.json"

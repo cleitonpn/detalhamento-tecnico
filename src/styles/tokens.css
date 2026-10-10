@@ -1,0 +1,98 @@
+/* ============================================================================
+   USET — tokens da marca.
+   ÚNICO arquivo a trocar quando chegar o KV oficial (vetor, paleta, tipografia).
+   Derivado do ícone USET: fundo navy profundo + gradiente azul → verde.
+   ========================================================================== */
+:root {
+  /* --- marca --------------------------------------------------------- */
+  --brand-blue: #2563eb;
+  --brand-blue-lit: #3b82f6;
+  --brand-green: #16e0a3;
+  --brand-green-dim: #0fb885;
+  --brand-grad: linear-gradient(
+    100deg,
+    var(--brand-blue) 0%,
+    #1d8bd8 45%,
+    var(--brand-green) 100%
+  );
+  --brand-grad-soft: linear-gradient(
+    100deg,
+    rgba(37, 99, 235, 0.16) 0%,
+    rgba(22, 224, 163, 0.16) 100%
+  );
+
+  /* --- superfícies -----------------------------------------------------
+     O painel continua escuro, que é o clima do produto, mas vários tons acima
+     do que era: quem passa o dia mapeando estava forçando a vista. O 3D vai no
+     caminho oposto, claro, porque lá o assunto é o estande — ver a peça é a
+     tarefa, não o clima. */
+  --bg: #101624;
+  --bg-deep: #0b111c;
+  --surface: #182032;
+  --surface-2: #1c2437;
+  --surface-3: #26314a;
+  --line: #2b3651;
+  --line-lit: #3f5075;
+  --line-soft: rgba(255, 255, 255, 0.09);
+
+  /* --- texto ---------------------------------------------------------- */
+  --text: #f3f6fd;
+  --text-mid: #b7c3da;
+  --text-dim: #8a99b8;
+
+  /* --- 3D: ciclorama, não parede branca -------------------------------
+     Fundo chapado claro resolvia a leitura e estragava o resto: ficava um
+     branco estourado ao lado de uma interface escura. Um degradê de estúdio
+     resolve as duas coisas — claro o bastante atrás do estande para a peça
+     escura aparecer, escurecendo nas bordas para casar com o painel. */
+  --cena-fundo: radial-gradient(
+    125% 105% at 50% 62%,
+    #8d9ab6 0%,
+    #5d6b8b 38%,
+    #303b57 72%,
+    #161d2e 100%
+  );
+  --cena-grade: #7a88a6;
+  --cena-secao: #98a5c0;
+
+  /* --- semânticos ----------------------------------------------------- */
+  --ok: #16e0a3;
+  --warn: #f5a524;
+  --danger: #f43f5e;
+  --info: #3b82f6;
+
+  /* --- papéis de superfície (usados no admin e no viewer) ------------- */
+  --role-lona: #f59e0b;
+  --role-bagum: #a855f7;
+  --role-piso: #14b8a6;
+  --role-vidro: #38bdf8;
+  --role-madeira: #c2833f;
+  --role-metal: #94a3b8;
+  --role-mob: #64748b;
+  --role-luz: #fde047;
+
+  /* --- forma ---------------------------------------------------------- */
+  --r-sm: 8px;
+  --r: 12px;
+  --r-lg: 18px;
+  --r-xl: 26px;
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow: 0 8px 30px rgba(0, 0, 0, 0.45);
+  --shadow-lg: 0 24px 70px rgba(0, 0, 0, 0.6);
+  --glow:
+    0 0 0 1px rgba(59, 130, 246, 0.35), 0 8px 40px rgba(37, 99, 235, 0.28);
+  --glow-green:
+    0 0 0 1px rgba(22, 224, 163, 0.35), 0 8px 40px rgba(22, 224, 163, 0.22);
+
+  /* --- tipografia ----------------------------------------------------- */
+  --font-display: "Sora", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-ui: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+
+  /* --- movimento ------------------------------------------------------ */
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --t-fast: 140ms;
+  --t: 240ms;
+  --t-slow: 460ms;
+}

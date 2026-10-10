@@ -1,0 +1,291 @@
+[
+  {
+    "id": "floor-mdf-wood",
+    "name": "MDF amadeirado 9 mm",
+    "family": "wood",
+    "unit": "m²",
+    "thicknessMm": 9,
+    "sheetM": null,
+    "source": {
+      "repository": "https://github.com/cleitonpn/or-amento-uset",
+      "assetId": "floor-mdf-wood",
+      "reference": "Planilha Custo Uset 25 05 26 V3.xlsx • Preço Atualização!J11"
+    },
+    "requiresConfirmation": true
+  },
+  {
+    "id": "floor-mdf-white",
+    "name": "MDF branco 9 mm",
+    "family": "wood",
+    "unit": "m²",
+    "thicknessMm": 9,
+    "sheetM": null,
+    "source": {
+      "repository": "https://github.com/cleitonpn/or-amento-uset",
+      "assetId": "floor-mdf-white",
+      "reference": "Planilha Custo Uset 25 05 26 V3.xlsx • Preço Atualização!J8"
+    },
+    "requiresConfirmation": true
+  },
+  {
+    "id": "floor-mdf-black",
+    "name": "MDF preto 9 mm",
+    "family": "wood",
+    "unit": "m²",
+    "thicknessMm": 9,
+    "sheetM": null,
+    "source": {
+      "repository": "https://github.com/cleitonpn/or-amento-uset",
+      "assetId": "floor-mdf-black",
+      "reference": "Planilha Custo Uset 25 05 26 V3.xlsx • Preço Atualização!J9"
+    },
+    "requiresConfirmation": true
+  },
+  {
+    "id": "floor-carpet",
+    "name": "Forração 3 mm",
+    "family": "finish",
+    "unit": "m²",
+    "thicknessMm": 3,
+    "sheetM": null,
+    "source": {
+      "repository": "https://github.com/cleitonpn/or-amento-uset",
+      "assetId": "floor-carpet",
+      "reference": "Planilha Custo Uset 25 05 26 V3.xlsx • Preço Atualização!J16"
+    },
+    "requiresConfirmation": true
+  },
+  {
+    "id": "floor-decorflex",
+    "name": "Decorflex",
+    "family": "finish",
+    "unit": "m²",
+    "thicknessMm": null,
+    "sheetM": null,
+    "source": {
+      "repository": "https://github.com/cleitonpn/or-amento-uset",
+      "assetId": "floor-decorflex",
+      "reference": "Planilha Custo Uset 25 05 26 V3.xlsx • Preço Atualização!J18"
+    },
+    "requiresConfirmation": true
+  },
+  {
+    "id": "bagum",
+    "name": "Bagum cores",
+    "family": "finish",
+    "unit": "m²",
+    "thicknessMm": null,
+    "sheetM": null,
+    "source": {
+      "repository": "https://github.com/cleitonpn/or-amento-uset",
+      "assetId": "bagum",
+      "reference": "Planilha Custo Uset 25 05 26 V3.xlsx • Preço Atualização!J136"
+    },
+    "requiresConfirmation": true
+  },
+  {
+    "id": "bagum-wood",
+    "name": "Bagum amadeirado",
+    "family": "finish",
+    "unit": "m²",
+    "thicknessMm": null,
+    "sheetM": null,
+    "source": {
+      "repository": "https://github.com/cleitonpn/or-amento-uset",
+      "assetId": "bagum-wood",
+      "reference": "Planilha Custo Uset 25 05 26 V3.xlsx • Preço Atualização!J137"
+    },
+    "requiresConfirmation": true
+  },
+  {
+    "id": "bagum-cement",
+    "name": "Bagum cimento",
+    "family": "finish",
+    "unit": "m²",
+    "thicknessMm": null,
+    "sheetM": null,
+    "source": {
+      "repository": "https://github.com/cleitonpn/or-amento-uset",
+      "assetId": "bagum-cement",
+      "reference": "Planilha Custo Uset 25 05 26 V3.xlsx • Preço Atualização!J138"
+    },
+    "requiresConfirmation": true
+  },
+  {
+    "id": "lycra",
+    "name": "Lycra",
+    "family": "finish",
+    "unit": "m²",
+    "thicknessMm": null,
+    "sheetM": null,
+    "source": {
+      "repository": "https://github.com/cleitonpn/or-amento-uset",
+      "assetId": "lycra",
+      "reference": "Planilha Custo Uset 25 05 26 V3.xlsx • Preço Atualização!J139"
+    },
+    "requiresConfirmation": true
+  },
+  {
+    "id": "custo-491",
+    "name": "Compensado 4 mm · 2,20x1,60",
+    "family": "wood",
+    "unit": "chapa",
+    "thicknessMm": 4,
+    "sheetM": [
+      2.2,
+      1.6
+    ],
+    "source": {
+      "repository": "https://github.com/cleitonpn/or-amento-uset",
+      "assetId": "custo-491",
+      "reference": "Planilha Custo Uset 25 05 26 V3.xlsx • Custo!G491:K491"
+    },
+    "requiresConfirmation": true
+  },
+  {
+    "id": "custo-492",
+    "name": "Compensado 6 mm · 2,20x1,60",
+    "family": "wood",
+    "unit": "chapa",
+    "thicknessMm": 6,
+    "sheetM": [
+      2.2,
+      1.6
+    ],
+    "source": {
+      "repository": "https://github.com/cleitonpn/or-amento-uset",
+      "assetId": "custo-492",
+      "reference": "Planilha Custo Uset 25 05 26 V3.xlsx • Custo!G492:K492"
+    },
+    "requiresConfirmation": true
+  },
+  {
+    "id": "custo-493",
+    "name": "Compensado 10 mm · 2,20x1,60",
+    "family": "wood",
+    "unit": "chapa",
+    "thicknessMm": 10,
+    "sheetM": [
+      2.2,
+      1.6
+    ],
+    "source": {
+      "repository": "https://github.com/cleitonpn/or-amento-uset",
+      "assetId": "custo-493",
+      "reference": "Planilha Custo Uset 25 05 26 V3.xlsx • Custo!G493:K493"
+    },
+    "requiresConfirmation": true
+  },
+  {
+    "id": "custo-494",
+    "name": "Compensado 15 mm · 2,20x1,60",
+    "family": "wood",
+    "unit": "chapa",
+    "thicknessMm": 15,
+    "sheetM": [
+      2.2,
+      1.6
+    ],
+    "source": {
+      "repository": "https://github.com/cleitonpn/or-amento-uset",
+      "assetId": "custo-494",
+      "reference": "Planilha Custo Uset 25 05 26 V3.xlsx • Custo!G494:K494"
+    },
+    "requiresConfirmation": true
+  },
+  {
+    "id": "custo-495",
+    "name": "Mdf cru 4 mm · 2,75x1,83",
+    "family": "wood",
+    "unit": "chapa",
+    "thicknessMm": 4,
+    "sheetM": [
+      2.75,
+      1.83
+    ],
+    "source": {
+      "repository": "https://github.com/cleitonpn/or-amento-uset",
+      "assetId": "custo-495",
+      "reference": "Planilha Custo Uset 25 05 26 V3.xlsx • Custo!G495:K495"
+    },
+    "requiresConfirmation": true
+  },
+  {
+    "id": "custo-496",
+    "name": "Mdf Cru 6 mm · 2,75x1,83",
+    "family": "wood",
+    "unit": "chapa",
+    "thicknessMm": 6,
+    "sheetM": [
+      2.75,
+      1.83
+    ],
+    "source": {
+      "repository": "https://github.com/cleitonpn/or-amento-uset",
+      "assetId": "custo-496",
+      "reference": "Planilha Custo Uset 25 05 26 V3.xlsx • Custo!G496:K496"
+    },
+    "requiresConfirmation": true
+  },
+  {
+    "id": "custo-497",
+    "name": "Mdf Cru 9 mm · 2,75x1,83",
+    "family": "wood",
+    "unit": "chapa",
+    "thicknessMm": 9,
+    "sheetM": [
+      2.75,
+      1.83
+    ],
+    "source": {
+      "repository": "https://github.com/cleitonpn/or-amento-uset",
+      "assetId": "custo-497",
+      "reference": "Planilha Custo Uset 25 05 26 V3.xlsx • Custo!G497:K497"
+    },
+    "requiresConfirmation": true
+  },
+  {
+    "id": "custo-498",
+    "name": "Mdf Cru 15 mm · 2,75x1,83",
+    "family": "wood",
+    "unit": "chapa",
+    "thicknessMm": 15,
+    "sheetM": [
+      2.75,
+      1.83
+    ],
+    "source": {
+      "repository": "https://github.com/cleitonpn/or-amento-uset",
+      "assetId": "custo-498",
+      "reference": "Planilha Custo Uset 25 05 26 V3.xlsx • Custo!G498:K498"
+    },
+    "requiresConfirmation": true
+  },
+  {
+    "id": "custo-499",
+    "name": "Mdf Cru 18 mm · 2,75x1,83",
+    "family": "wood",
+    "unit": "chapa",
+    "thicknessMm": 18,
+    "sheetM": [
+      2.75,
+      1.83
+    ],
+    "source": {
+      "repository": "https://github.com/cleitonpn/or-amento-uset",
+      "assetId": "custo-499",
+      "reference": "Planilha Custo Uset 25 05 26 V3.xlsx • Custo!G499:K499"
+    },
+    "requiresConfirmation": true
+  },
+  {
+    "id": "metalon-custom",
+    "name": "Metalon — seção a informar",
+    "family": "metal",
+    "unit": "m",
+    "thicknessMm": null,
+    "sheetM": null,
+    "source": null,
+    "requiresConfirmation": true
+  }
+]

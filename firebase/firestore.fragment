@@ -1,0 +1,25 @@
+// Adicionar dentro de match /databases/{database}/documents nas regras do projeto compartilhado.
+// Não substituir as regras atuais do Studio/produção por este fragmento.
+function dtMember(workspaceId) {
+  return request.auth != null
+    && exists(/databases/$(database)/documents/dt_workspaces/$(workspaceId)/members/$(request.auth.uid))
+    && get(/databases/$(database)/documents/dt_workspaces/$(workspaceId)/members/$(request.auth.uid)).data.active == true
+    && get(/databases/$(database)/documents/dt_workspaces/$(workspaceId)/members/$(request.auth.uid)).data.role in ['owner','editor','viewer'];
+}
+match /dt_workspaces/{workspaceId} {
+  allow read: if dtMember(workspaceId);
+  allow write: if false;
+  match /members/{uid} {
+    allow read: if dtMember(workspaceId) && request.auth.uid == uid;
+    allow write: if false;
+  }
+  match /projects/{projectId} {
+    allow read: if dtMember(workspaceId);
+    allow write: if false;
+    match /revisions/{revision} {
+      allow read: if dtMember(workspaceId);
+      allow write: if false;
+    }
+  }
+  match /uploads/{uploadId} { allow read, write: if false; }
+}

@@ -1,0 +1,21 @@
+{
+  "hosting": {
+    "target": "detalhamento",
+    "public": "dist",
+    "ignore": ["firebase.shared.json", "**/.*", "**/node_modules/**"],
+    "rewrites": [{ "source": "**", "destination": "/index.html" }],
+    "headers": [
+      {
+        "source": "/index.html",
+        "headers": [{ "key": "Cache-Control", "value": "no-cache" }]
+      }
+    ]
+  },
+  "functions": [
+    {
+      "source": "functions",
+      "codebase": "detalhamento",
+      "ignore": ["node_modules", ".git", "tests", "*.local", ".env.example"]
+    }
+  ]
+}

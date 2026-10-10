@@ -1,0 +1,33 @@
+{
+  "hosting": {
+    "target": "detalhamento",
+    "public": "dist",
+    "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
+    "rewrites": [{ "source": "**", "destination": "/index.html" }],
+    "headers": [
+      {
+        "source": "/index.html",
+        "headers": [{ "key": "Cache-Control", "value": "no-cache" }]
+      }
+    ]
+  },
+  "functions": [
+    {
+      "source": "functions",
+      "codebase": "detalhamento",
+      "ignore": ["node_modules", ".git", "tests", "*.local", ".env.example"]
+    }
+  ],
+  "firestore": {
+    "rules": "firebase/firestore.rules",
+    "indexes": "firebase/firestore.indexes.json"
+  },
+  "storage": { "rules": "firebase/storage.rules" },
+  "emulators": {
+    "auth": { "port": 9099 },
+    "firestore": { "port": 8080 },
+    "storage": { "port": 9199 },
+    "functions": { "port": 5001 },
+    "singleProjectMode": true
+  }
+}

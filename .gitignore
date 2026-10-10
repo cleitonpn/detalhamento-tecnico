@@ -1,0 +1,16 @@
+node_modules/
+dist/
+.env
+.env.local
+.env.*.local
+functions/.env*
+!functions/.env.example
+public/decoders/
+firebase-debug.log*
+firestore-debug.log
+storage-debug.log
+ui-debug.log
+playwright-report/
+test-results/
+*.local
+*-service-account.json

@@ -1,0 +1,40 @@
+{
+  "name": "detalhamento-tecnico",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Ferramenta independente de validação de peças e detalhamento dimensional de stands a partir de GLB.",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "decoders": "node scripts/copiar-decoders.mjs",
+    "predev": "npm run decoders",
+    "prebuild": "npm run decoders",
+    "build": "vite build",
+    "preview": "vite preview --host 0.0.0.0",
+    "test": "node --test tests/*.test.js",
+    "test:server": "npm --prefix functions test",
+    "test:e2e": "playwright test",
+    "test:rules": "firebase emulators:exec --only firestore,storage --project demo-detalhamento \"node --test tests/rules.test.cjs\"",
+    "test:backend": "firebase emulators:exec --only auth,firestore,storage,functions --project demo-detalhamento \"node --test tests/backend-emulator.test.cjs\""
+  },
+  "dependencies": {
+    "@react-three/drei": "^9.122.0",
+    "@react-three/fiber": "^8.18.0",
+    "firebase": "^11.10.0",
+    "jspdf": "^4.2.1",
+    "lucide-react": "^0.468.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "three": "^0.169.0"
+  },
+  "devDependencies": {
+    "@firebase/rules-unit-testing": "^4.0.1",
+    "@playwright/test": "^1.56.0",
+    "@vitejs/plugin-react": "^4.7.0",
+    "firebase-tools": "^14.22.0",
+    "vite": "^6.4.1"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
