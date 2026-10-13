@@ -3,8 +3,16 @@ import { DRACOLoader } from "three/examples/jsm/loaders/DRACOLoader.js";
 import { KTX2Loader } from "three/examples/jsm/loaders/KTX2Loader.js";
 import { MeshoptDecoder } from "three/examples/jsm/libs/meshopt_decoder.module.js";
 
+export const LIGHTWEIGHT_THRESHOLD_BYTES = 50 * 1024 * 1024;
+export const useLightweightMode = (file) =>
+  file.size > LIGHTWEIGHT_THRESHOLD_BYTES;
+
 // Mesmos decodificadores e versão de Three do Studio, com suporte KTX2 detectado no renderer real.
-export async function loadModel(file, renderer) {
+export async function loadModel(
+  file,
+  renderer,
+  { buffer, loadTextures = !useLightweightMode(file) } = {},
+) {
   const draco = new DRACOLoader().setDecoderPath("/decoders/draco/");
   const ktx = new KTX2Loader()
     .setTranscoderPath("/decoders/basis/")
@@ -13,14 +21,27 @@ export async function loadModel(file, renderer) {
     .setDRACOLoader(draco)
     .setKTX2Loader(ktx)
     .setMeshoptDecoder(MeshoptDecoder);
+  if (!loadTextures) {
+    // Impede a decodificação e o envio de imagens à GPU, inclusive nas extensões
+    // Basis/WebP/AVIF. Mantém geometria, hierarquia, nomes e cores dos materiais.
+    loader.register((parser) => {
+      parser.loadTexture = () => Promise.resolve(null);
+      parser.loadTextureImage = () => Promise.resolve(null);
+      return { name: "DT_geometry_only" };
+    });
+  }
   try {
-    const result = await loader.parseAsync(await file.arrayBuffer(), "");
+    const result = await loader.parseAsync(
+      buffer ?? (await file.arrayBuffer()),
+      "",
+    );
     result.scene.traverse((node) => {
       const index = result.parser.associations.get(node)?.nodes;
       if (index !== undefined)
         node.userData.originalName =
           result.parser.json.nodes[index]?.name || node.name;
     });
+    result.scene.userData.dtLightweight = !loadTextures;
     return result.scene;
   } catch (error) {
     throw Error(

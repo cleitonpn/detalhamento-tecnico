@@ -1,7 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
-import { partitionScene, validateFile } from "../src/lib/model.js";
+import { hashFile, partitionScene, validateFile } from "../src/lib/model.js";
+import { MAX_FILE_BYTES } from "../src/domain/project.js";
 import { buildDrawing } from "../src/lib/drawings.js";
 import { mergeParts, splitPart } from "../src/domain/project.js";
 
@@ -103,4 +104,42 @@ test("recusa extensão ou cabeçalho GLB inválido antes do loader", async () =>
   );
   const header = new Uint32Array([0x46546c67, 2, 12]);
   await validateFile(new File([header], "arquivo.glb"));
+});
+
+test("aceita GLB maior que 50 MB até o limite e recusa excedentes antes de ler", async () => {
+  for (const size of [84_181_968, MAX_FILE_BYTES]) {
+    const file = {
+      name: "grande.glb",
+      size,
+      slice: () => new Blob([new Uint32Array([0x46546c67, 2, size])]),
+    };
+    assert.equal(await validateFile(file), file);
+  }
+  await assert.rejects(
+    validateFile({
+      name: "excedente.glb",
+      size: MAX_FILE_BYTES + 1,
+      slice: () => {
+        throw Error("Não deveria ler um arquivo acima do limite.");
+      },
+    }),
+    /200 MB/,
+  );
+});
+
+test("hash reutiliza o buffer lido sem alterar a identidade do GLB", async () => {
+  const file = new File([new Uint32Array([0x46546c67, 2, 12])], "stand.glb");
+  const buffer = await file.arrayBuffer();
+  const expected = await hashFile(file);
+  assert.equal(
+    await hashFile(
+      {
+        arrayBuffer: () => {
+          throw Error("Leitura duplicada.");
+        },
+      },
+      buffer,
+    ),
+    expected,
+  );
 });

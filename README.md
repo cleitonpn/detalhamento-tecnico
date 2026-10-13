@@ -4,7 +4,8 @@ Aplicação independente para transformar um modelo `.glb` em um levantamento or
 
 ## O que já funciona nesta base
 
-- Upload local de GLB 2.0 de até 50 MB, incluindo Draco, Meshopt e KTX2/Basis.
+- Upload de GLB 2.0 de até 200 MB, incluindo Draco, Meshopt e KTX2/Basis.
+- Modo leve automático acima de 50 MB: abre geometria e cores sem decodificar texturas, preservando peças, medidas e o arquivo original.
 - Organização inicial por componentes da hierarquia do arquivo. Nomes, materiais visuais e forma ajudam nas sugestões, mas **não confirmam a construção**.
 - Seleção pelo 3D ou pela lista, seleção múltipla, isolamento, transparência, foco, navegação e desfazer/refazer.
 - Reunião de peças em um conjunto e separação de um conjunto nas malhas que o compõem.
@@ -80,6 +81,8 @@ Os testes cobrem peças coincidentes, dimensões de componentes rotacionados, es
 Resultados e verificação com o GLB ECBR: [docs/VERIFICACAO.md](docs/VERIFICACAO.md).
 
 Estudo comparativo dos quatro modelos ECBR, SHELL e LOTERIAS: [docs/ESTUDO_GLB.md](docs/ESTUDO_GLB.md).
+
+Requisito e estratégia para raios e detalhamento de testeiras, balcões e paredes curvas: [docs/PECAS_CURVAS.md](docs/PECAS_CURVAS.md). O cálculo de raios ainda não está implementado.
 
 ## Próximas entregas
 

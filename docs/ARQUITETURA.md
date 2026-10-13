@@ -60,6 +60,10 @@ As cópias estão no próprio repositório e foram formatadas. Atualizações fu
 
 O Canvas renderiza sob demanda, limita a resolução e reaproveita a geometria. Materiais de destaque são clonados, preservando o original. Geometrias, materiais e texturas são liberados ao trocar o modelo.
 
+Arquivos de até 200 MiB são aceitos. Acima de 50 MiB, o loader usa modo leve automaticamente: não carrega nem decodifica texturas, incluindo fontes Basis/WebP/AVIF. Geometria, hierarquia, nomes e cores dos materiais são preservados. A visualização informa esse modo; ele não reduz polígonos nem gera um arquivo convertido. O buffer lido para o SHA-256 é reutilizado no parser, evitando uma segunda leitura integral. O arquivo original é salvo no IndexedDB ou enviado por upload retomável ao Storage.
+
 As vistas usam arestas da geometria projetadas no referencial da peça. Malhas cujo número de arestas ultrapasse o limite por vista são mostradas como envelope simplificado, com indicação no PDF. Não usar essa simplificação como detalhe de fabricação.
 
 Esta base gera vistas individuais; plantas executivas completas, ligações estruturais, otimização de corte e padrões construtivos permanecem como próximas entregas.
+
+Peças curvas exigem extração de contornos e cálculo de curvatura além do envelope atual. O requisito está registrado em [PECAS_CURVAS.md](PECAS_CURVAS.md), incluindo estimativa de raio, incerteza, validação humana e saída no caderno.

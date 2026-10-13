@@ -1,9 +1,14 @@
 import { httpsCallable } from "firebase/functions";
-import { getBlob, ref, uploadBytes } from "firebase/storage";
+import { getBlob, ref, uploadBytesResumable } from "firebase/storage";
 import { functions, storage, workspaceId } from "./firebase.js";
 
 const call = async (name, data = {}) =>
-  (await httpsCallable(functions, name)({ workspaceId, ...data })).data;
+  (
+    await httpsCallable(functions, name, { timeout: 180000 })({
+      workspaceId,
+      ...data,
+    })
+  ).data;
 export const cloudRepository = {
   async list() {
     return (await call("dt_listProjects")).projects;
@@ -14,7 +19,7 @@ export const cloudRepository = {
       file: project.file,
     });
     if (!upload.exists)
-      await uploadBytes(ref(storage, upload.path), file, {
+      await uploadBytesResumable(ref(storage, upload.path), file, {
         contentType: "model/gltf-binary",
       });
     return (

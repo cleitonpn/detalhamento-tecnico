@@ -1,6 +1,7 @@
 const { test, after } = require("node:test");
 const assert = require("node:assert/strict");
 const { createHash } = require("node:crypto");
+const { readFile } = require("node:fs/promises");
 const { createRequire } = require("node:module");
 const adminRequire = createRequire(
   require.resolve("../functions/package.json"),
@@ -24,7 +25,7 @@ const {
   getStorage,
   connectStorageEmulator,
   ref,
-  uploadBytes,
+  uploadBytesResumable,
 } = require("firebase/storage");
 const apps = [];
 const admin = initializeAdmin({ projectId: "demo-detalhamento" }, "test-admin");
@@ -59,7 +60,12 @@ test("Functions: workspace, upload verificado, concorrência, publicação e iso
   );
   const workspaceId = `user_${account.user.uid}`;
   const call = async (name, data = {}) =>
-    (await httpsCallable(owner.functions, name)({ workspaceId, ...data })).data;
+    (
+      await httpsCallable(owner.functions, name, { timeout: 180000 })({
+        workspaceId,
+        ...data,
+      })
+    ).data;
   await assert.rejects(call("dt_initializeWorkspace"), /ativação/);
   await adminAuth(admin).setCustomUserClaims(account.user.uid, {
     detalhamento: true,
@@ -67,15 +73,26 @@ test("Functions: workspace, upload verificado, concorrência, publicação e iso
   await account.user.getIdToken(true);
   await call("dt_initializeWorkspace");
   // Cabeçalho GLB para verificar transporte, assinatura e identidade; o teste de geometria é separado.
-  const bytes = Buffer.alloc(12);
-  bytes.writeUInt32LE(0x46546c67, 0);
-  bytes.writeUInt32LE(2, 4);
-  bytes.writeUInt32LE(12, 8);
+  const bytes = process.env.DT_GLB_UPLOAD_TEST_FILE
+    ? await readFile(process.env.DT_GLB_UPLOAD_TEST_FILE)
+    : Buffer.alloc(12);
+  if (!process.env.DT_GLB_UPLOAD_TEST_FILE) {
+    bytes.writeUInt32LE(0x46546c67, 0);
+    bytes.writeUInt32LE(2, 4);
+    bytes.writeUInt32LE(12, 8);
+  }
   const hash = createHash("sha256").update(bytes).digest("hex");
-  const file = { name: "fixture.glb", bytes: 12, hash },
+  const file = { name: "fixture.glb", bytes: bytes.length, hash },
     projectId = "project_fixture";
+  await assert.rejects(
+    call("dt_reserveModel", {
+      projectId: "too_large",
+      file: { ...file, bytes: 200 * 1024 * 1024 + 1 },
+    }),
+    /200 MB/,
+  );
   const reservation = await call("dt_reserveModel", { projectId, file });
-  await uploadBytes(ref(owner.storage, reservation.path), bytes, {
+  await uploadBytesResumable(ref(owner.storage, reservation.path), bytes, {
     contentType: "model/gltf-binary",
   });
   const project = {

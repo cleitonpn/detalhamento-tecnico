@@ -9,6 +9,7 @@ import {
   cleanText,
   createRelease,
   MAX_FILE_BYTES,
+  MAX_FILE_MB,
   progress,
 } from "./domain.js";
 import {
@@ -26,7 +27,7 @@ const studioEnabled = () => process.env.DT_ENABLE_STUDIO_INTEGRATION === "true";
 const options = {
   region: "southamerica-east1",
   maxInstances: 10,
-  timeoutSeconds: 120,
+  timeoutSeconds: 180,
   memory: "512MiB",
 };
 
@@ -126,7 +127,7 @@ export const dt_reserveModel = endpoint(async (req) => {
     file.bytes <= 0 ||
     file.bytes > MAX_FILE_BYTES
   )
-    throw Error("Envie um GLB de até 50 MB.");
+    throw Error(`Envie um GLB de até ${MAX_FILE_MB} MB.`);
   const reservation = db.doc(
     `dt_workspaces/${id}/uploads/${projectId}_${file.hash}.glb`,
   );

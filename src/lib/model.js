@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { coletarPecas } from "./vendor/studio/analyze.js";
-import { MAX_FILE_BYTES, SCALE } from "../domain/project.js";
+import { MAX_FILE_BYTES, MAX_FILE_MB, SCALE } from "../domain/project.js";
 
 const plainReview = () => ({
   kind: "unclassified",
@@ -251,7 +251,7 @@ export async function validateFile(file) {
   if (!file || !/\.glb$/i.test(file.name))
     throw Error("Escolha um arquivo .glb.");
   if (!file.size || file.size > MAX_FILE_BYTES)
-    throw Error("Envie um GLB de até 50 MB.");
+    throw Error(`Envie um GLB de até ${MAX_FILE_MB} MB.`);
   const header = await file.slice(0, 12).arrayBuffer(),
     view = new DataView(header);
   if (
@@ -263,8 +263,11 @@ export async function validateFile(file) {
     throw Error("O arquivo não é um GLB 2.0 válido.");
   return file;
 }
-export async function hashFile(file) {
-  const hash = await crypto.subtle.digest("SHA-256", await file.arrayBuffer());
+export async function hashFile(file, buffer) {
+  const hash = await crypto.subtle.digest(
+    "SHA-256",
+    buffer ?? (await file.arrayBuffer()),
+  );
   return [...new Uint8Array(hash)]
     .map((n) => n.toString(16).padStart(2, "0"))
     .join("");

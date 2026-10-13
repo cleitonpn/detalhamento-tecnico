@@ -11,7 +11,7 @@ Estudo realizado em 10/10/2026 nos arquivos originais fornecidos pelo usuário. 
 | SHELL LABACE            | 33,96 MB |  3.864 |    794.129 |                46 |      21 |                 13 |
 | LOTERIAS CAIXA          | 84,18 MB |  5.356 |  1.459.174 |             1.712 |   1.664 |                106 |
 
-MB nesta tabela significa 1.000.000 bytes. O limite chamado de “50 MB” na interface é implementado como 50 MiB, ou 52.428.800 bytes. O LOTERIAS excede esse limite.
+MB nesta tabela significa 1.000.000 bytes. Na base estudada inicialmente, o limite chamado de “50 MB” na interface era implementado como 50 MiB, ou 52.428.800 bytes. O LOTERIAS excedia esse limite. A ampliação posterior aceita **200 MiB**, exibidos como 200 MB, e abre arquivos acima de 50 MiB em modo leve, sem texturas.
 
 ![Comparação de tamanho, malhas e triângulos](images/estudo-complexidade.svg)
 
@@ -58,9 +58,9 @@ Próxima estratégia recomendada:
 
 ## LOTERIAS: peso das texturas e fragmentação
 
-A leitura geométrica local funcionou, mas o upload normal da aplicação é bloqueado pelo tamanho. O arquivo tem **58,92 MB em imagens incorporadas**, aproximadamente **70% do total**. Os dados binários de geometria ocupam cerca de 18,51 MB.
+A leitura geométrica local funcionou; na base inicial, o upload normal era bloqueado pelo tamanho. O arquivo tem **58,92 MB em imagens incorporadas**, aproximadamente **70% do total**. Os dados binários de geometria ocupam cerca de 18,51 MB.
 
-Existem 1.664 imagens, das quais 1.660 têm bytes distintos. Remover apenas duplicatas exatas economizaria aproximadamente **1,44 MB**; isso não bastaria para trazer o arquivo ao limite atual. Muitas imagens são pequenas e estreitas, compatíveis com fragmentação por face na exportação. É necessário avaliar atlas, reexportação e redução de resolução, preservando a aparência e as associações das peças.
+Existem 1.664 imagens, das quais 1.660 têm bytes distintos. Remover apenas duplicatas exatas economizaria aproximadamente **1,44 MB**; isso não bastaria para trazer o arquivo ao antigo limite de 50 MiB. Muitas imagens são pequenas e estreitas, compatíveis com fragmentação por face na exportação. Para visualização com texturas, é necessário avaliar atlas, reexportação e redução de resolução, preservando a aparência e as associações das peças.
 
 Há uma imagem de 4.096 × 8.192 px. Somar todas as imagens como RGBA com mipmaps resulta em uma **estimativa de aproximadamente 1,29 GB**. Isso é uma estimativa de representação de textura, não uma medição de memória real do navegador ou garantia de que todas as imagens sejam residentes simultaneamente. O pico também depende da decodificação, do renderer, do dispositivo e dos materiais utilizados. Todos os materiais/imagens encontrados são referenciados pela geometria.
 
@@ -72,7 +72,7 @@ O modelo permite propor 106 conjuntos, mas ainda há exemplos que exigem subdivi
 
 Vinte conjuntos utilizam pelo menos uma vista simplificada; são 59 vistas simplificadas das 318 possíveis. A geometria pode orientar o levantamento, mas essas vistas não descrevem os componentes internos para fabricação.
 
-O suporte a esse porte deve combinar carregamento progressivo, otimização de texturas, redução de chamadas de desenho e preservação dos IDs individuais para seleção. Aumentar o limite de bytes exige alterar frontend, domínio compartilhado, Functions e regras de Storage em conjunto, depois de medir consumo e tempo no navegador.
+O suporte a esse porte deve combinar carregamento progressivo, otimização de texturas, redução de chamadas de desenho e preservação dos IDs individuais para seleção. A ampliação do limite alterou frontend, domínio compartilhado, Functions e regras de Storage em conjunto. O modo leve preserva toda a geometria, os nomes, IDs e cores dos materiais, sem decodificar as imagens. Ele evita o custo dessas texturas, mas não reduz polígonos nem garante fluidez em qualquer dispositivo. O GLB original é preservado no armazenamento.
 
 ## Medição, identificação e intervenção humana
 
@@ -96,9 +96,10 @@ Esses GLBs mostram o exterior e a organização visual. Não fornecem, por si s�
 
 1. **Hierarquia navegável e subdivisão por componentes**, usando o SHELL como caso principal e mantendo os agrupamentos coerentes dos ECBR.
 2. **Modo de referência para móveis, iluminação e equipamentos**, preservando-os no 3D e evitando validar sua tesselação como peças a fabricar.
-3. **Otimização e diagnóstico de modelos grandes**, usando o LOTERIAS como referência antes de ampliar os limites de upload.
-4. **Identidade e comparação entre revisões**, usando as duas versões ECBR para detectar alterações sem perder vínculos.
-5. **Padrões construtivos**, para converter elementos confirmados em peças físicas, cortes e detalhes internos com origem técnica explícita.
+3. **Contornos e medidas de peças curvas**, com raios e desenhos para testeiras, balcões e paredes, conforme [PECAS_CURVAS.md](PECAS_CURVAS.md).
+4. **Otimização adicional de modelos grandes**, usando o LOTERIAS como referência para texturas e chamadas de desenho. O limite de 200 MiB e o modo leve já foram implementados.
+5. **Identidade e comparação entre revisões**, usando as duas versões ECBR para detectar alterações sem perder vínculos.
+6. **Padrões construtivos**, para converter elementos confirmados em peças físicas, cortes e detalhes internos com origem técnica explícita.
 
 ## Reproduzir o diagnóstico
 
@@ -111,7 +112,7 @@ O script lê a geometria sem carregar texturas e usa os mesmos módulos `partiti
 
 Este diagnóstico CLI foi preparado para o corpus recebido, com geometria sem Draco/Meshopt. A aplicação no navegador tem os decodificadores desses formatos; o script não substitui esse carregador completo nem resolve recursos externos.
 
-Também foi verificado o upload real na interface: o ECBR com lona carregou 807 malhas/33 conjuntos; o SHELL carregou 3.864 malhas/13 conjuntos e permitiu selecionar e isolar o conjunto principal. Não foram registrados erros JavaScript nesses cenários. A interface rejeitou o LOTERIAS com a mensagem de limite de 50 MB; sua geometria foi estudada separadamente, sem alterar ou contornar a validação do aplicativo. O ECBR com dois LEDs já passou pelo teste de navegador descrito em [VERIFICACAO.md](VERIFICACAO.md).
+Na verificação inicial, o ECBR com lona carregou 807 malhas/33 conjuntos; o SHELL carregou 3.864 malhas/13 conjuntos e permitiu selecionar e isolar o conjunto principal. Não foram registrados erros JavaScript nesses cenários. Naquela versão, a interface rejeitou o LOTERIAS com a mensagem de limite de 50 MB; sua geometria foi estudada separadamente. O ECBR com dois LEDs passou pelo teste de navegador descrito em [VERIFICACAO.md](VERIFICACAO.md). O mesmo documento registra os testes posteriores com o limite ampliado e o modo leve.
 
 O Chromium deste ambiente usa WebGL por software. O carregamento até a lista ficar disponível levou aproximadamente 8 s no ECBR com lona e 40 s no SHELL nesta execução; esses valores não são um benchmark de GPU, fluidez de navegação ou garantia de desempenho no computador do usuário.
 

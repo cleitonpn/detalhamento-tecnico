@@ -1,4 +1,4 @@
-# Verificação da primeira base
+# Verificação da aplicação
 
 Verificação local realizada em 10/10/2026. A aplicação e as Functions foram executadas sem credenciais de produção. Os testes Firebase usam exclusivamente o projeto fictício `demo-detalhamento`.
 
@@ -45,6 +45,33 @@ DT_GLB_TEST_FILE='/caminho/arquivo.glb' npm run test:e2e
 ```
 
 Sem essa variável, o teste do modelo ECBR é pulado; os cenários da demonstração continuam sendo executados no CI. Imagens na documentação usam apenas a demonstração sintética.
+
+## Ampliação para GLBs grandes — 13/10/2026
+
+O limite foi ampliado para **200 MiB**, exibidos como 200 MB. A interface, validação compartilhada, reserva nas Functions, importação do Studio e regras de Storage usam o mesmo teto. O upload cloud passou a ser retomável durante a sessão. O prazo da validação é de 180 segundos.
+
+Acima de 50 MiB, o modo leve não decodifica texturas. Mantém a geometria completa, hierarquia, nomes, cores dos materiais e medidas. O buffer usado no hash é reutilizado no parser; o arquivo original permanece intacto no armazenamento.
+
+Verificações concluídas:
+
+- **19 testes de domínio, geometria, carregamento e autorização passaram.** Incluem arquivo de 84 MB, tamanho máximo/excedente, reutilização do buffer e materiais com texturas comuns/Basis indisponíveis: o modo leve lê a geometria sem carregar essas imagens.
+- **2 testes de regras passaram**, preservando equipe, papel, reserva, MIME, tamanho e imutabilidade.
+- O ciclo das **Functions com o GLB LOTERIAS completo, de 84.181.968 bytes, passou** nos emuladores durante a implementação: reserva, envio retomável, verificação de cabeçalho e SHA-256, salvamento, conflito de versões, publicação e consulta da revisão. Uma reserva acima de 200 MiB é recusada antes do envio. Esse teste verifica transporte/identidade; sua peça de metadados é sintética, não uma validação construtiva do modelo real.
+- **5 cenários de navegador passaram na rodada de 13/10/2026.** O LOTERIAS abriu com 5.356 malhas e 106 conjuntos, permitiu selecionar/isolar um conjunto, conferir suas medidas, salvar uma observação e reabrir o projeto preservando a alteração. Não houve erro JavaScript nem evento de perda do contexto WebGL; o contador de decodificações `createImageBitmap` permaneceu em zero. Os outros quatro cenários preservam a demonstração, PDF/revisão, tela pequena, invalidação de confirmação e medidas do ECBR.
+- O build de produção passou. As telas do LOTERIAS foram inspecionadas; seus arquivos e capturas não são incorporados ao repositório.
+
+O teste do LOTERIAS levou aproximadamente 2,5 minutos neste Chromium com WebGL por software, incluindo interações, salvamento, reabertura e encerramento do contexto. Isso não representa tempo de carregamento, FPS ou um benchmark de GPU. O limite ampliado não garante fluidez em qualquer computador; quantidade de malhas, materiais e geometria ainda influenciam o desempenho.
+
+Para repetir com uma cópia autorizada do mesmo modelo:
+
+```bash
+DT_LARGE_GLB_TEST_FILE='/caminho/LOTERIAS CAIXA-BASE.glb' npm run test:e2e
+DT_GLB_UPLOAD_TEST_FILE='/caminho/LOTERIAS CAIXA-BASE.glb' npm run test:backend
+```
+
+Sem essas variáveis, o cenário de navegador do LOTERIAS é pulado e o backend usa o cabeçalho sintético pequeno. Não houve deploy do limite novo nas aplicações existentes; instalações cloud precisam atualizar as Functions e integrar o fragmento de Storage às suas regras. O modo local já usa o limite novo ao atualizar este repositório.
+
+Raios e detalhamento de peças curvas permanecem como requisito de implementação separado, descrito em [PECAS_CURVAS.md](PECAS_CURVAS.md). Os testes atuais não validam cálculo de raios.
 
 ## Limites verificados
 

@@ -9,6 +9,7 @@ import {
   newProject,
   progress,
   updateParts,
+  MAX_FILE_BYTES,
 } from "../src/domain/project.js";
 import {
   applyStudioSource,
@@ -131,4 +132,14 @@ test("catálogo derivado não contém custos e só informa seção metalon após
     materials.find((m) => m.id === "metalon-custom").thicknessMm,
     null,
   );
+});
+
+test("domínio aceita modelos grandes e mantém o teto do upload", () => {
+  const { project } = fixture();
+  project.file.bytes = 84_181_968;
+  assert.doesNotThrow(() => checkProject(project));
+  project.file.bytes = MAX_FILE_BYTES;
+  assert.doesNotThrow(() => checkProject(project));
+  project.file.bytes++;
+  assert.throws(() => checkProject(project), /200 MB/);
 });

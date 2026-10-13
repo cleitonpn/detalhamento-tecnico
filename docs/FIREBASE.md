@@ -52,6 +52,8 @@ dt_workspaces/{workspaceId}/projects/{projectId}/models/{hash}.glb
 
 Arquivos são reservados antes do upload. As regras conferem equipe, papel, proprietário da reserva, expiração, tamanho e MIME. A Function confere assinatura GLB 2.0 e SHA-256 antes de salvar. O GLB não é sobrescrito; uma nova identidade representa outro arquivo.
 
+O limite é de **200 MiB (209.715.200 bytes)**, exibido na interface como 200 MB. Frontend, domínio, Functions e regras de Storage usam o mesmo limite. O upload cloud é retomável em caso de interrupções de rede durante a sessão; a validação do arquivo usa leitura em fluxo no servidor. O prazo da chamada de validação foi ampliado para 180 segundos. Em instalações existentes, atualizar Functions e o fragmento de Storage junto com o frontend; regras antigas de 50 MB continuarão bloqueando uploads maiores. O modo leve altera apenas a visualização: o Storage recebe o GLB original, incluindo suas texturas.
+
 Revisões são criadas no servidor e não podem ser editadas diretamente pelo cliente. Controle de versão impede que duas sessões sobrescrevam seus trabalhos silenciosamente.
 
 ## Regras compartilhadas

@@ -14,7 +14,8 @@ export const KINDS = {
   ignore: "Fora do detalhamento",
 };
 export const SCALE = { m: 1, cm: 0.01, mm: 0.001 };
-export const MAX_FILE_BYTES = 50 * 1024 * 1024;
+export const MAX_FILE_MB = 200;
+export const MAX_FILE_BYTES = MAX_FILE_MB * 1024 * 1024;
 export const MAX_PARTS = 5000;
 export const MATERIAL_REQUIRED = new Set([
   "metalon",
@@ -118,7 +119,7 @@ export function checkProject(project) {
     project.file.bytes <= 0 ||
     project.file.bytes > MAX_FILE_BYTES
   )
-    throw Error("GLB acima do limite de 50 MB ou inválido.");
+    throw Error(`GLB acima do limite de ${MAX_FILE_MB} MB ou inválido.`);
   if (
     !Array.isArray(project.parts) ||
     !project.parts.length ||

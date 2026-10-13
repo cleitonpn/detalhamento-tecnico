@@ -14,7 +14,7 @@ match /dt_workspaces/{workspaceId}/projects/{projectId}/models/{filename} {
     && firestore.get(/databases/(default)/documents/dt_workspaces/$(workspaceId)/uploads/$(projectId + '_' + filename)).data.uid == request.auth.uid
     && firestore.get(/databases/(default)/documents/dt_workspaces/$(workspaceId)/uploads/$(projectId + '_' + filename)).data.expiresAtMs > request.time.toMillis()
     && request.resource.size == firestore.get(/databases/(default)/documents/dt_workspaces/$(workspaceId)/uploads/$(projectId + '_' + filename)).data.bytes
-    && request.resource.size <= 50 * 1024 * 1024
+    && request.resource.size <= 200 * 1024 * 1024
     && request.resource.contentType == 'model/gltf-binary';
   allow update, delete: if false;
 }

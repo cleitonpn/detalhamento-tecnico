@@ -30,6 +30,7 @@ import {
   confirmParts,
   createRelease,
   KINDS,
+  MAX_FILE_MB,
   newProject,
   progress,
   SCALE,
@@ -43,7 +44,7 @@ import {
   partitionScene,
   validateFile,
 } from "./lib/model.js";
-import { loadModel } from "./lib/loader.js";
+import { loadModel, useLightweightMode } from "./lib/loader.js";
 import { demoFile } from "./lib/demo.js";
 import { formatM } from "./lib/drawings.js";
 import { localRepository } from "./services/localRepository.js";
@@ -235,10 +236,19 @@ export default function App() {
         if (signature(project) !== lastSaved.current)
           await persist(project, file);
       }
-      const hash = await hashFile(sourceFile);
+      setBusy("Conferindo a identidade do arquivo…");
+      const buffer = await sourceFile.arrayBuffer();
+      const hash = await hashFile(sourceFile, buffer);
       if (restored && hash !== restored.file.hash)
         throw Error("O GLB salvo não corresponde ao projeto.");
-      nextScene = await loadModel(sourceFile, renderer);
+      const lightweight = useLightweightMode(sourceFile);
+      setBusy(
+        lightweight
+          ? "Lendo a geometria em modo leve, sem texturas…"
+          : "Lendo o modelo e suas texturas…",
+      );
+      nextScene = await loadModel(sourceFile, renderer, { buffer });
+      setBusy("Organizando as peças e calculando as medidas…");
       const nextAnalysis = partitionScene(
         nextScene,
         restored?.sourceUnit || "m",
@@ -269,6 +279,10 @@ export default function App() {
       setFocusTick(0);
       setIsolate(false);
       setXray(false);
+      if (lightweight)
+        setNotice(
+          "Modelo aberto em modo leve, sem texturas, para reduzir o uso de memória. A geometria, as medidas e o GLB original foram preservados.",
+        );
     } catch (e) {
       if (nextScene && nextScene !== currentScene.current)
         disposeModel(nextScene);
@@ -644,7 +658,7 @@ export default function App() {
               >
                 Explorar uma demonstração <ChevronRight size={16} />
               </button>
-              <small>Até 50 MB · Arquivos GLB 2.0</small>
+              <small>Até {MAX_FILE_MB} MB · Arquivos GLB 2.0</small>
             </div>
           )}
           {project && (
@@ -726,6 +740,7 @@ export default function App() {
               <div className="model-stat">
                 {analysis?.meshes} malhas · unidade de origem{" "}
                 <strong>{project.sourceUnit}</strong>
+                {scene?.userData.dtLightweight && " · Modo leve (sem texturas)"}
               </div>
             </>
           )}
