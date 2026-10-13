@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { FileDown, FileJson, CheckCircle2, ArrowRight } from "lucide-react";
-import { progress } from "../domain/project.js";
+import { materialLabel, progress } from "../domain/project.js";
 import { buildDrawing, drawingSvg, downloadPdf } from "../lib/drawings.js";
 
 export function downloadJson(value, name) {
@@ -122,23 +122,20 @@ export default function Drawings({
               <div className="paper-specs">
                 <p>
                   <strong>Material:</strong>{" "}
-                  {project.materials.find(
-                    (m) => m.id === part.review.materialId,
-                  )?.name || "A informar"}
+                  {materialLabel(
+                    project.materials.find(
+                      (m) => m.id === part.review.materialId,
+                    ),
+                  ) || "A informar"}
                 </p>
                 <p>
                   <strong>Revestimento:</strong>{" "}
-                  {project.materials.find((m) => m.id === part.review.finishId)
-                    ?.name || "Não informado"}
+                  {materialLabel(
+                    project.materials.find(
+                      (m) => m.id === part.review.finishId,
+                    ),
+                  ) || "Não informado"}
                 </p>
-                {part.review.kind === "metalon" && (
-                  <p>
-                    <strong>Metalon:</strong>{" "}
-                    {part.review.profileWidthMm || "?"} ×{" "}
-                    {part.review.profileHeightMm || "?"} mm · parede de{" "}
-                    {part.review.wallThicknessMm || "?"} mm
-                  </p>
-                )}
                 <p>{part.review.notes || "Sem observações de construção."}</p>
               </div>
               <footer>

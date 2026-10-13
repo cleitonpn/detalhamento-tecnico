@@ -10,6 +10,7 @@ import {
   progress,
   updateParts,
   MAX_FILE_BYTES,
+  materialLabel,
 } from "../src/domain/project.js";
 import {
   applyStudioSource,
@@ -55,22 +56,49 @@ test("sugestão não valida peça; revisão exige material e conferência dimens
   assert.equal(progress(project).pending, 1);
   assert.equal(release.parts[0].review.notes, "");
 });
-test("metalon exige seção física válida, sem inferir pelo material de render", () => {
+test("metalon é validado com as medidas externas do GLB, sem seção ou espessura manual", () => {
   let { project } = fixture();
   const ids = project.parts.map((p) => p.id);
+  const dimensions = structuredClone(project.parts[0].dimensions);
   project = updateParts(project, ids, {
     review: {
       kind: "metalon",
       materialId: "metalon-custom",
-      dimensionsConfirmed: true,
-      profileWidthMm: 20,
-      profileHeightMm: 20,
-      wallThicknessMm: 15,
     },
   });
-  assert.throws(() => confirmParts(project, ids), /espessura/);
-  project = updateParts(project, ids, { review: { wallThicknessMm: 1.5 } });
-  assert.doesNotThrow(() => confirmParts(project, ids));
+  assert.throws(() => confirmParts(project, ids), /medidas/);
+  project = updateParts(project, ids, {
+    review: { dimensionsConfirmed: true },
+  });
+  project = confirmParts(project, ids);
+  assert.equal(progress(project).pending, 0);
+  assert.deepEqual(createRelease(project, 1).parts[0].dimensions, dimensions);
+});
+test("metalon de um projeto antigo ignora dados de seção manual e mantém suas dimensões", () => {
+  let { project } = fixture();
+  const dimensions = structuredClone(project.parts[0].dimensions);
+  project.materials = project.materials.map((m) =>
+    m.id === "metalon-custom"
+      ? { ...m, name: "Metalon — seção a informar" }
+      : m,
+  );
+  project.parts[0].review = {
+    ...project.parts[0].review,
+    kind: "metalon",
+    materialId: "metalon-custom",
+    dimensionsConfirmed: true,
+    profileWidthMm: 20,
+    profileHeightMm: 20,
+    wallThicknessMm: 15,
+  };
+  project = confirmParts(project, [project.parts[0].id]);
+  checkProject(project);
+  const release = createRelease(project, 1);
+  assert.deepEqual(release.parts[0].dimensions, dimensions);
+  assert.equal(
+    materialLabel(release.materials.find((m) => m.id === "metalon-custom")),
+    "Metalon",
+  );
 });
 test("recusa materiais desconhecidos, malhas duplicadas e revisão inválida", () => {
   const { project } = fixture();
@@ -121,7 +149,7 @@ test("Studio exige o mesmo GLB e reaproveita nomes sem fingir validação constr
   assert.equal(envelope.sourceRevision, 2);
   assert.equal(envelope.constructionRelease, false);
 });
-test("catálogo derivado não contém custos e só informa seção metalon após validação", () => {
+test("catálogo derivado não contém custos nem exige seção manual de metalon", () => {
   assert.ok(materials.every((m) => !("cost" in m) && !("price" in m)));
   assert.equal(materials.find((m) => m.id === "custo-498").thicknessMm, 15);
   assert.deepEqual(

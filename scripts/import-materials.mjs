@@ -49,7 +49,7 @@ const materials = assets
   });
 materials.push({
   id: "metalon-custom",
-  name: "Metalon — seção a informar",
+  name: "Metalon",
   family: "metal",
   unit: "m",
   thicknessMm: null,

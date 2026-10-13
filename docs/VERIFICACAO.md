@@ -73,6 +73,14 @@ Sem essas variáveis, o cenário de navegador do LOTERIAS é pulado e o backend 
 
 Raios e detalhamento de peças curvas permanecem como requisito de implementação separado, descrito em [PECAS_CURVAS.md](PECAS_CURVAS.md). Os testes atuais não validam cálculo de raios.
 
+## Metalon com medidas externas do GLB — 13/10/2026
+
+Por orientação do usuário, a validação de metalon deixou de exigir seção e espessura do tubo. Os campos foram removidos da interface e do caderno/PDF. O material é identificado como Metalon; as dimensões externas, vistas e medidas continuam sendo extraídas do GLB, sem redimensionar a peça. A classificação, o material e a conferência da unidade/medidas continuam no fluxo de validação.
+
+Projetos antigos aceitam a nova regra e apresentam o material com o rótulo atualizado, mantendo seus registros e dimensões. Os testes verificam que campos legados de seção/espessura não bloqueiam confirmação nem geração de revisão.
+
+Vinte testes de domínio, geometria, carregamento e autorização passaram. Três cenários de navegador passaram; o cenário ECBR foi pulado nessa rodada, sem variável de arquivo de cliente. A demonstração confirmou os três pilares de metalon sem digitação de seção ou espessura, registrou revisão e preservou no JSON as dimensões externas de 0,10 × 3,00 × 0,10 m. A extração de texto do PDF conferiu essas mesmas dimensões e o material Metalon, sem campos de perfil, espessura ou valores indefinidos. O build para a subpasta do GitHub Pages passou.
+
 ## Limites verificados
 
 - O agrupamento usa a hierarquia e as malhas existentes; não divide automaticamente um sólido em peças físicas de fabricação.

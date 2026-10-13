@@ -87,10 +87,10 @@ O operador deve confirmar separadamente:
 - Qual elemento ou conjunto foi identificado.
 - Se ele será fabricado ou apenas usado como equipamento/mobiliário de referência.
 - Quais partes são estrutura, parede, revestimento e complementos.
-- Material, seção, espessura e padrão construtivo.
+- Material, padrão construtivo e observações. Para metalon, o levantamento segue as dimensões externas do GLB, sem exigir seção ou espessura do tubo digitadas.
 - Medidas, orientação, posição e revisão de origem.
 
-Esses GLBs mostram o exterior e a organização visual. Não fornecem, por si só, seções de metalon, reforços, ferragens, encaixes ou regras de corte suficientes para liberar fabricação.
+Esses GLBs mostram o exterior e a organização visual. Suas dimensões externas orientam o levantamento; reforços, ferragens, encaixes e regras de corte internos exigem referências construtivas adicionais para liberar fabricação.
 
 ## Prioridades para a próxima implementação
 

@@ -29,6 +29,13 @@ export const cleanText = (value, max = 180) =>
   String(value ?? "")
     .trim()
     .slice(0, max);
+// Projetos antigos podem manter o rótulo do catálogo que pedia uma seção manual.
+export function materialLabel(material) {
+  return material?.id === "metalon-custom" &&
+    material.name === "Metalon — seção a informar"
+    ? "Metalon"
+    : material?.name || "";
+}
 export function assertId(value, label = "Identificador") {
   if (typeof value !== "string" || !/^[a-zA-Z0-9_-]{1,100}$/.test(value))
     throw Error(`${label} inválido.`);
@@ -50,14 +57,6 @@ export function partIssues(part) {
     issues.push("Confira as medidas e a unidade do modelo.");
   if (MATERIAL_REQUIRED.has(r.kind) && !r.materialId)
     issues.push("Selecione o material de construção.");
-  if (r.kind === "metalon") {
-    const { profileWidthMm: w, profileHeightMm: h, wallThicknessMm: t } = r;
-    if (
-      ![w, h, t].every((n) => Number.isFinite(n) && n > 0) ||
-      t * 2 >= Math.min(w, h)
-    )
-      issues.push("Informe a seção e a espessura de parede do metalon.");
-  }
   return issues;
 }
 export function progress(project) {

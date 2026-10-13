@@ -655,20 +655,6 @@ a {
   color: var(--brand-green);
   padding-bottom: 0;
 }
-.profile-fields {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 7px;
-  margin-top: 12px;
-}
-.profile-fields label {
-  font-size: 9px;
-  color: var(--text-dim);
-}
-.profile-fields input {
-  margin-top: 6px;
-  padding: 8px;
-}
 .check-field {
   display: flex;
   gap: 8px;

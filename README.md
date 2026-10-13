@@ -9,7 +9,7 @@ Aplicação independente para transformar um modelo `.glb` em um levantamento or
 - Organização inicial por componentes da hierarquia do arquivo. Nomes, materiais visuais e forma ajudam nas sugestões, mas **não confirmam a construção**.
 - Seleção pelo 3D ou pela lista, seleção múltipla, isolamento, transparência, foco, navegação e desfazer/refazer.
 - Reunião de peças em um conjunto e separação de um conjunto nas malhas que o compõem.
-- Validação de tipo, material de construção, revestimento, medidas, seção de metalon e observações.
+- Validação de tipo, material de construção, revestimento, medidas externas do GLB e observações. Metalon usa as medidas do modelo, sem pedir seção ou espessura do tubo.
 - Catálogo inicial com 19 referências técnicas derivadas do orçamento USET, sem preços ou custos.
 - Armazenamento no navegador, reabertura de projetos e exportação/restauração dos dados de validação em JSON.
 - Registro de revisão após validar todas as peças, pacote técnico JSON e caderno dimensional em PDF.

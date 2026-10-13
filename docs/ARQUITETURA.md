@@ -35,7 +35,7 @@ O agrupamento inicial preserva os componentes; não reconhece automaticamente a 
 
 ## Validação humana
 
-Sugestão e confirmação são campos diferentes. O tipo sugerido pode ser usado na interface, mas só o operador confirma a peça. Para metalon, são exigidas seção e espessura da parede do perfil. A espessura de um painel visível não vira automaticamente espessura de MDF.
+Sugestão e confirmação são campos diferentes. O tipo sugerido pode ser usado na interface, mas só o operador confirma a peça. Para metalon, o levantamento usa as medidas externas da geometria do GLB e não exige digitar seção ou espessura do tubo. A conferência da unidade e das medidas extraídas continua sendo necessária. A espessura de um painel visível não vira automaticamente espessura de MDF.
 
 Uma edição das especificações invalida a confirmação das peças afetadas. Cada revisão registra uma cópia independente. O contrato atual possui `scope: dimensional-survey` e `constructionRelease: false`; a futura liberação construtiva exigirá regras e dados próprios.
 
@@ -43,7 +43,7 @@ Uma edição das especificações invalida a confirmação das peças afetadas. 
 
 O catálogo técnico deriva de `data/complete-seed.json` do [orçamento USET](https://github.com/cleitonpn/or-amento-uset), referência `f5edae88ca0e13bc3ba25621c3fcaaca9302d4c9`. Foram extraídos códigos, descrições, unidades e medidas explícitas de materiais selecionados. Preços e custos não foram copiados.
 
-O script `scripts/import-materials.mjs` permite repetir a extração usando um checkout local do orçamento. Medidas comerciais são referências e precisam ser confirmadas. Sarrafos com nomenclatura ambígua não tiveram suas seções inferidas. Não foram encontrados perfis de metalon explicitamente dimensionados nessa fonte; a aplicação pede os valores ao operador.
+O script `scripts/import-materials.mjs` permite repetir a extração usando um checkout local do orçamento. Medidas comerciais são referências e precisam ser confirmadas. Sarrafos com nomenclatura ambígua não tiveram suas seções inferidas. Metalon tem uma referência genérica de material; suas dimensões no levantamento vêm do GLB. Campos de seção/espessura existentes em projetos antigos não bloqueiam a validação nem são exibidos no caderno atual. Revisões e metadados históricos são preservados.
 
 ## Reaproveitamento do Studio
 

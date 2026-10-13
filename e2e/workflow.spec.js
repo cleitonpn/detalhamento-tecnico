@@ -40,9 +40,10 @@ test("validação humana, revisão, PDF e persistência local", async ({
         .getByLabel("Material de construção", { exact: true })
         .selectOption("custo-498");
     if (kind === "metalon") {
-      await page.getByLabel("Largura (mm)", { exact: true }).fill("100");
-      await page.getByLabel("Altura (mm)", { exact: true }).fill("100");
-      await page.getByLabel("Espessura (mm)", { exact: true }).fill("2");
+      await expect(page.getByRole("spinbutton")).toHaveCount(0);
+      await expect(page.locator(".measure-card")).toContainText(
+        "0,10 × 3,00 × 0,10",
+      );
     }
     await page.getByLabel(/Conferi as medidas/).check();
     await page
@@ -53,6 +54,9 @@ test("validação humana, revisão, PDF e persistência local", async ({
   await page
     .getByRole("button", { name: "Caderno técnico", exact: false })
     .click();
+  await page.locator(".drawing-item").filter({ hasText: "Pilar 1" }).click();
+  await expect(page.locator(".paper-specs")).toContainText("Metalon");
+  await expect(page.locator(".paper-specs")).not.toContainText("mm");
   await page.getByRole("button", { name: "Registrar revisão" }).click();
   await expect(
     page.getByText("Revisão 1 registrada", { exact: true }),
@@ -63,6 +67,14 @@ test("validação humana, revisão, PDF e persistência local", async ({
   const file = JSON.parse(await readFile(await download.path(), "utf8"));
   expect(file.parts).toHaveLength(10);
   expect(file.constructionRelease).toBe(false);
+  for (const part of file.parts.filter((p) => p.review.kind === "metalon")) {
+    expect(part.dimensions[0]).toBeCloseTo(0.1);
+    expect(part.dimensions[1]).toBeCloseTo(3);
+    expect(part.dimensions[2]).toBeCloseTo(0.1);
+    expect(part.review.profileWidthMm).toBeUndefined();
+    expect(part.review.profileHeightMm).toBeUndefined();
+    expect(part.review.wallThicknessMm).toBeUndefined();
+  }
   await page.screenshot({
     path: testInfo.outputPath("caderno.png"),
     fullPage: true,

@@ -1,5 +1,5 @@
 import { Check, Layers, Split, Info } from "lucide-react";
-import { KINDS, partIssues } from "../domain/project.js";
+import { KINDS, materialLabel, partIssues } from "../domain/project.js";
 import { formatM } from "../lib/drawings.js";
 
 export default function Inspector({
@@ -142,35 +142,10 @@ export default function Inspector({
               <option value="">Selecionar material</option>
               {(kind === "finish" ? materials : construction).map((m) => (
                 <option key={m.id} value={m.id}>
-                  {m.name}
+                  {materialLabel(m)}
                 </option>
               ))}
             </select>
-            {kind === "metalon" && (
-              <div className="profile-fields">
-                {[
-                  ["profileWidthMm", "Largura"],
-                  ["profileHeightMm", "Altura"],
-                  ["wallThicknessMm", "Espessura"],
-                ].map(([key, label]) => (
-                  <label key={key}>
-                    {label} (mm)
-                    <input
-                      type="number"
-                      min="0.1"
-                      step="0.1"
-                      value={same(key) || ""}
-                      onChange={(e) =>
-                        review(
-                          key,
-                          e.target.value ? Number(e.target.value) : null,
-                        )
-                      }
-                    />
-                  </label>
-                ))}
-              </div>
-            )}
             {kind !== "finish" && (
               <>
                 <label className="field-label" htmlFor="part-finish">
@@ -184,7 +159,7 @@ export default function Inspector({
                   <option value="">Sem revestimento informado</option>
                   {finishes.map((m) => (
                     <option key={m.id} value={m.id}>
-                      {m.name}
+                      {materialLabel(m)}
                     </option>
                   ))}
                 </select>

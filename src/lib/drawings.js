@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { SCALE } from "../domain/project.js";
+import { materialLabel, SCALE } from "../domain/project.js";
 
 const cachedEdges = new WeakMap();
 const VIEWS = { front: [0, 1], top: [0, 2], side: [2, 1] };
@@ -177,16 +177,10 @@ export async function downloadPdf(project, parts, meshMap) {
     );
     const finish = project.materials.find((m) => m.id === part.review.finishId);
     pdf.text(
-      `Material: ${material?.name || "Não especificado"} | Revestimento: ${finish?.name || "Sem revestimento informado"}`,
+      `Material: ${materialLabel(material) || "Não especificado"} | Revestimento: ${materialLabel(finish) || "Sem revestimento informado"}`,
       16,
       177,
     );
-    if (part.review.kind === "metalon")
-      pdf.text(
-        `Perfil: ${part.review.profileWidthMm} × ${part.review.profileHeightMm} mm | Parede do perfil: ${part.review.wallThicknessMm} mm`,
-        16,
-        184,
-      );
     if (part.review.notes)
       pdf.text(
         pdf.splitTextToSize(part.review.notes, width - 32).slice(0, 2),
