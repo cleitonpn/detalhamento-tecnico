@@ -38,6 +38,8 @@ Fluxo: enviar GLB → conferir unidade → selecionar/classificar peças → con
 
 Há uma demonstração gerada no navegador, sem arquivos de clientes incorporados ao repositório.
 
+Publicação do frontend no GitHub Pages: [docs/GITHUB_PAGES.md](docs/GITHUB_PAGES.md). O workflow gera a versão com armazenamento no navegador e usa a subpasta do repositório.
+
 ![Visualização e organização das peças da demonstração](docs/images/modelo.png)
 
 ![Caderno dimensional da demonstração](docs/images/caderno.png)

@@ -337,7 +337,11 @@ export default function App() {
   return (
     <div className="app-shell">
       <header className="topbar">
-        <a className="brand" href="/" onClick={(e) => e.preventDefault()}>
+        <a
+          className="brand"
+          href={import.meta.env.BASE_URL}
+          onClick={(e) => e.preventDefault()}
+        >
           <span className="brand-mark">
             <Box size={23} />
           </span>

@@ -13,9 +13,10 @@ export async function loadModel(
   renderer,
   { buffer, loadTextures = !useLightweightMode(file) } = {},
 ) {
-  const draco = new DRACOLoader().setDecoderPath("/decoders/draco/");
+  const baseUrl = import.meta.env?.BASE_URL || "/";
+  const draco = new DRACOLoader().setDecoderPath(`${baseUrl}decoders/draco/`);
   const ktx = new KTX2Loader()
-    .setTranscoderPath("/decoders/basis/")
+    .setTranscoderPath(`${baseUrl}decoders/basis/`)
     .detectSupport(renderer);
   const loader = new GLTFLoader()
     .setDRACOLoader(draco)
