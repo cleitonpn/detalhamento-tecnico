@@ -23,6 +23,7 @@ import {
 import Viewer from "./components/Viewer.jsx";
 import Inspector from "./components/Inspector.jsx";
 import Drawings, { downloadJson } from "./components/Drawings.jsx";
+import Export3D from "./components/Export3D.jsx";
 import Login from "./components/Login.jsx";
 import materials from "./data/materials.json";
 import {
@@ -530,6 +531,13 @@ export default function App() {
           />
           <span className="file-name">{project.file.name}</span>
           <div className="spacer" />
+          <button
+            className={`text-button ${tab === "export" ? "active" : ""}`}
+            onClick={() => setTab("export")}
+          >
+            <Box size={15} />
+            Exportar 3D
+          </button>
           <button className="text-button" onClick={() => setModal("project")}>
             Dados do projeto
           </button>
@@ -552,7 +560,9 @@ export default function App() {
       )}
       <div
         className={
-          tab === "drawings" ? "workspace hidden-workspace" : "workspace"
+          tab === "drawings" || tab === "export"
+            ? "workspace hidden-workspace"
+            : "workspace"
         }
       >
         {project && (
@@ -813,6 +823,16 @@ export default function App() {
           />
         )}
       </div>
+      {project && tab === "export" && (
+        <Export3D
+          project={project}
+          analysis={analysis}
+          scene={scene}
+          onBack={() => setTab("validate")}
+          onError={setError}
+          onNotice={setNotice}
+        />
+      )}
       {project && tab === "drawings" && (
         <Drawings
           {...{ project, analysis, release }}

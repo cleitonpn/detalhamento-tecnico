@@ -1429,3 +1429,119 @@ a {
   gap: 12px;
   margin-bottom: 10px;
 }
+
+/* Aba Exportar 3D */
+.export-layout {
+  display: grid;
+  grid-template-columns: 300px minmax(0, 1fr) 260px;
+  gap: 16px;
+  min-height: 560px;
+}
+.export-list,
+.export-options {
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg, 12px);
+  padding: 14px;
+  min-width: 0;
+}
+.export-list {
+  display: flex;
+  flex-direction: column;
+  max-height: 72vh;
+}
+.export-list ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  overflow: auto;
+}
+.export-list-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+  color: var(--text-dim);
+  margin: 10px 2px;
+}
+.export-item {
+  width: 100%;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 2px 8px;
+  align-items: center;
+  text-align: left;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--r-sm, 6px);
+  color: var(--text-mid);
+  padding: 7px 8px;
+  cursor: pointer;
+  font: inherit;
+}
+.export-item small {
+  grid-column: 2;
+  color: var(--text-dim);
+  font-size: 11px;
+}
+.export-item:hover {
+  background: var(--surface-3);
+}
+.export-item.selected {
+  border-color: var(--brand-green);
+  color: var(--text);
+}
+.export-item:focus-visible {
+  outline: 2px solid var(--brand-green);
+  outline-offset: 1px;
+}
+.export-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.export-viewer {
+  position: relative;
+  border-radius: var(--r-lg, 12px);
+  overflow: hidden;
+  background: var(--cena-fundo, var(--surface-2));
+  min-height: 420px;
+}
+.export-hint {
+  position: absolute;
+  left: 16px;
+  bottom: 12px;
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.export-options {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.export-options h2 {
+  font-size: 13px;
+  margin: 0;
+}
+.export-options .check {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 13px;
+  cursor: pointer;
+}
+.export-options .muted {
+  font-size: 12px;
+  color: var(--text-dim);
+  line-height: 1.5;
+  margin: 0;
+}
+@media (max-width: 1100px) {
+  .export-layout {
+    grid-template-columns: 1fr;
+  }
+  .export-viewer {
+    min-height: 340px;
+  }
+}
