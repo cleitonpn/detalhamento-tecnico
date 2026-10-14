@@ -3,6 +3,8 @@ import { DRACOLoader } from "three/examples/jsm/loaders/DRACOLoader.js";
 import { KTX2Loader } from "three/examples/jsm/loaders/KTX2Loader.js";
 import { MeshoptDecoder } from "three/examples/jsm/libs/meshopt_decoder.module.js";
 
+const isCadFile = (name) => /\.(dwg|dxf|zip)$/i.test(name || "");
+
 export const LIGHTWEIGHT_THRESHOLD_BYTES = 50 * 1024 * 1024;
 export const useLightweightMode = (file) =>
   file.size > LIGHTWEIGHT_THRESHOLD_BYTES;
@@ -13,6 +15,15 @@ export async function loadModel(
   renderer,
   { buffer, loadTextures = !useLightweightMode(file) } = {},
 ) {
+  if (isCadFile(file.name)) {
+    // DWG/DXF/ZIP: lido direto, sem conversão para GLB. Carregado sob demanda (wasm de ~9 MB).
+    const { loadCad } = await import("./dwg/index.js");
+    try {
+      return await loadCad(file.name, buffer ?? (await file.arrayBuffer()));
+    } catch (error) {
+      throw Error(`Não foi possível ler o desenho. ${error.message}`);
+    }
+  }
   const baseUrl = import.meta.env?.BASE_URL || "/";
   const draco = new DRACOLoader().setDecoderPath(`${baseUrl}decoders/draco/`);
   const ktx = new KTX2Loader()

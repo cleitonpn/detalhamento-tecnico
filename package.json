@@ -18,8 +18,10 @@
     "test:backend": "firebase emulators:exec --only auth,firestore,storage,functions --project demo-detalhamento \"node --test tests/backend-emulator.test.cjs\""
   },
   "dependencies": {
+    "@mlightcad/libredwg-web": "^0.7.14",
     "@react-three/drei": "^9.122.0",
     "@react-three/fiber": "^8.18.0",
+    "fflate": "^0.8.2",
     "firebase": "^11.10.0",
     "jspdf": "^4.2.1",
     "lucide-react": "^0.468.0",

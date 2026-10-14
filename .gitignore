@@ -14,3 +14,6 @@ playwright-report/
 test-results/
 *.local
 *-service-account.json
+
+# Arquivos de clientes usados só em testes locais
+.local-samples/

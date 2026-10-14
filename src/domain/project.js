@@ -4,7 +4,7 @@ export function newProject(file, analysis) {
   return {
     schemaVersion: 1,
     id: crypto.randomUUID(),
-    name: file.name.replace(/\.glb$/i, ""),
+    name: file.name.replace(/\.(glb|dwg|dxf|zip)$/i, ""),
     client: "",
     fair: "",
     sourceUnit: "m",

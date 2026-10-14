@@ -43,6 +43,7 @@ import {
   hashFile,
   partitionScene,
   validateFile,
+  isCad,
 } from "./lib/model.js";
 import { loadModel, useLightweightMode } from "./lib/loader.js";
 import { demoFile } from "./lib/demo.js";
@@ -225,7 +226,13 @@ export default function App() {
       return;
     }
     const token = ++requestId.current;
-    setBusy("Lendo o GLB e organizando as peças…");
+    setBusy("Lendo o modelo e organizando as peças…");
+    if (cloudMode && isCad(sourceFile?.name)) {
+      // O servidor ainda só valida e guarda GLB (functions/index.js e storage.rules).
+      setBusy("");
+      setError("No espaço em nuvem, envie o modelo em GLB. Arquivos DWG, DXF e ZIP abrem no espaço local.");
+      return;
+    }
     setError("");
     setNotice("");
     let nextScene;
@@ -240,21 +247,24 @@ export default function App() {
       const buffer = await sourceFile.arrayBuffer();
       const hash = await hashFile(sourceFile, buffer);
       if (restored && hash !== restored.file.hash)
-        throw Error("O GLB salvo não corresponde ao projeto.");
+        throw Error("O arquivo salvo não corresponde ao projeto.");
       const lightweight = useLightweightMode(sourceFile);
       setBusy(
-        lightweight
-          ? "Lendo a geometria em modo leve, sem texturas…"
-          : "Lendo o modelo e suas texturas…",
+        isCad(sourceFile.name)
+          ? "Lendo o desenho DWG e montando as peças 3D…"
+          : lightweight
+            ? "Lendo a geometria em modo leve, sem texturas…"
+            : "Lendo o modelo e suas texturas…",
       );
       nextScene = await loadModel(sourceFile, renderer, { buffer });
       setBusy("Organizando as peças e calculando as medidas…");
       const nextAnalysis = partitionScene(
         nextScene,
-        restored?.sourceUnit || "m",
+        restored?.sourceUnit || nextScene.userData.dtSourceUnit || "m",
       );
       const next = restored || {
         ...newProject(sourceFile, { ...nextAnalysis, hash }),
+        sourceUnit: nextScene.userData.dtSourceUnit || "m",
         materials,
       };
       checkProject(next);
@@ -279,7 +289,20 @@ export default function App() {
       setFocusTick(0);
       setIsolate(false);
       setXray(false);
-      if (lightweight)
+      const cad = nextScene.userData.dtCad;
+      if (cad && !restored)
+        setNotice(
+          [
+            `Desenho aberto direto do DWG, em ${nextScene.userData.dtSourceUnit}. Confira a unidade em Dados do projeto.`,
+            cad.unitMismatch &&
+              "O cabeçalho do arquivo indicava outra unidade; a escolhida segue o tamanho do desenho.",
+            cad.solids3d &&
+              `${cad.solids3d} sólido(s) ACIS (3DSOLID) ficaram de fora: no AutoCAD, use MESHSMOOTH e salve de novo.`,
+          ]
+            .filter(Boolean)
+            .join(" "),
+        );
+      else if (lightweight)
         setNotice(
           "Modelo aberto em modo leve, sem texturas, para reduzir o uso de memória. A geometria, as medidas e o GLB original foram preservados.",
         );
@@ -400,9 +423,9 @@ export default function App() {
       <input
         ref={uploadRef}
         type="file"
-        accept=".glb"
+        accept=".glb,.dwg,.dxf,.zip"
         hidden
-        aria-label="Arquivo GLB"
+        aria-label="Arquivo do modelo (GLB, DWG, DXF ou ZIP)"
         onChange={(e) => {
           const f = e.target.files[0];
           e.target.value = "";
@@ -525,7 +548,7 @@ export default function App() {
             onClick={() => uploadRef.current.click()}
           >
             <Plus size={15} />
-            Novo GLB
+            Novo modelo
           </button>
         </div>
       )}
@@ -647,7 +670,7 @@ export default function App() {
                 onClick={() => uploadRef.current.click()}
               >
                 <Upload size={19} />
-                Enviar arquivo .glb
+                Enviar modelo (.dwg ou .glb)
               </button>
               <button
                 className="text-button demo-button"
@@ -662,7 +685,9 @@ export default function App() {
               >
                 Explorar uma demonstração <ChevronRight size={16} />
               </button>
-              <small>Até {MAX_FILE_MB} MB · Arquivos GLB 2.0</small>
+              <small>
+                Até {MAX_FILE_MB} MB · DWG, DXF, ZIP do WeTransfer ou GLB 2.0
+              </small>
             </div>
           )}
           {project && (
