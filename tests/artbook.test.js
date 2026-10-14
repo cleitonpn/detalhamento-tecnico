@@ -196,3 +196,111 @@ test("camadas empilhadas do mesmo objeto viram uma interferência só", async ()
   assert.match(zones[0].label, /\(\+2\)$/);
   assert.deepEqual([zones[0].w, zones[0].h], [103.5, 58.5]);
 });
+
+// Testeira sextavada de 3 × 1 m (pontas de 50 cm), chapa de 3 cm, plano z = 0…0,03
+function hexTris() {
+  const ring = [
+    [0.5, 0],
+    [2.5, 0],
+    [3, 0.5],
+    [2.5, 1],
+    [0.5, 1],
+    [0, 0.5],
+  ];
+  const out = [];
+  for (const z of [0, 0.03])
+    for (let i = 1; i + 1 < ring.length; i++)
+      out.push(
+        ...[ring[0], ring[i], ring[i + 1]].flatMap(([x, y]) => [x, y, z]),
+      );
+  // Bordas da chapa
+  ring.forEach((p, i) => {
+    const q = ring[(i + 1) % ring.length];
+    out.push(p[0], p[1], 0, q[0], q[1], 0, q[0], q[1], 0.03);
+    out.push(p[0], p[1], 0, q[0], q[1], 0.03, p[0], p[1], 0.03);
+  });
+  return out;
+}
+const testeira = {
+  ...wall,
+  id: "testeira",
+  label: "Testeira",
+  dimensions: [3, 1, 0.03],
+  bounds: { min: [0, 0, 0], max: [3, 1, 0.03] },
+};
+
+test("testeira sextavada: a face traz o contorno real e a área descontando as pontas", async () => {
+  const { outlineArea, artArea } = await import("../src/lib/artbook.js");
+  const faces = wallFaces(hexTris());
+  const f = faces.find((x) => x.nz > 0.9);
+  assert.ok(f.outline, "contorno");
+  assert.equal(f.outline[0].length, 6);
+  assert.ok(near(outlineArea(f.outline), 2.5, 1e-6));
+  // Olhando a face da frente (+z), a ponta esquerda fica no meio da altura
+  assert.ok(f.outline[0].some(([x, y]) => near(x, 0) && near(y, 0.5)));
+  assert.ok(near(artArea(newArt(testeira, 0, f)), 2.5, 1e-6));
+  // Parede retangular continua sem contorno
+  assert.equal(front.outline, null);
+});
+
+test("logo recortada e imagem aplicada não viram interferência; TV continua", () => {
+  const f = wallFaces(hexTris()).find((x) => x.nz > 0.9);
+  // Letras: duas barras finas separadas, 1 cm de espessura (preenchem pouco da caixa)
+  const letters = [
+    ...boxTris([0.8, 0.3, 0.03], [0.9, 0.7, 0.04]),
+    ...boxTris([1.6, 0.3, 0.03], [1.7, 0.7, 0.04]),
+  ];
+  const logo = box("logo", "Logo", [0.8, 0.3, 0.03], [1.7, 0.7, 0.04]);
+  const imagem = box("img", "Imagem", [0.6, 0.2, 0.031], [2.4, 0.8, 0.031]);
+  const tv = box("tv", "TV", [1.9, 0.2, 0.03], [2.3, 0.45, 0.08]);
+  const geo = { logo: letters, tv: boxTris(tv.bounds.min, tv.bounds.max) };
+  const zones = autoZones(
+    newArt(testeira, 0, f),
+    testeira,
+    [logo, imagem, tv],
+    {
+      trianglesOf: (p) => geo[p.id] || [],
+    },
+  );
+  assert.deepEqual(
+    zones.map((z) => z.label),
+    ["TV"],
+  );
+});
+
+test("face encostada em outra peça perde para a face livre, mesmo sendo a interna", async () => {
+  const { defaultFace, markInward } = await import("../src/lib/artbook.js");
+  // Parede atrás da testeira (lado −z), cobrindo a metade de baixo; centro do stand em −z
+  const parede = box("parede", "Parede", [-1, -3, -0.5], [4, 0.5, 0]);
+  const piso = box("piso", "Piso", [-1, -3.1, -6], [4, -3, 0]);
+  const faces = markInward(wallFaces(hexTris()), testeira, [
+    testeira,
+    parede,
+    piso,
+  ]);
+  const back = faces.findIndex((x) => x.nz < -0.9);
+  assert.ok(faces[back].inward, "a face de trás olha para o centro");
+  const geo = { parede: boxTris(parede.bounds.min, parede.bounds.max) };
+  const i = defaultFace(faces, testeira, [testeira, parede, piso], {
+    trianglesOf: (p) => geo[p.id] || [],
+  });
+  assert.ok(faces[i].nz > 0.9, "escolhe a face livre, de frente");
+});
+
+test("gabarito de formato recortado cota os vértices e não preenche fora do contorno", () => {
+  const f = wallFaces(hexTris()).find((x) => x.nz > 0.9);
+  const art = newArt(testeira, 0, f, "Face 1");
+  const svg = sheetSvg(
+    buildArtSheet({
+      project: { name: "Stand", revision: 0 },
+      art,
+      part: testeira,
+      iso: null,
+      preview: true,
+    }),
+  );
+  assert.match(svg, /envolvente/);
+  assert.match(svg, />200</); // trecho reto entre as pontas
+  assert.match(svg, />50</);
+  assert.match(svg, /2,5 m²/);
+});

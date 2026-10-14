@@ -15,6 +15,7 @@ import {
   partFaces,
   defaultFace,
   faceLabel,
+  worldTriangles,
   markerLabel,
   artSheet,
   buildArtMap,
@@ -111,17 +112,53 @@ export default function ArtBook({
     };
   }, [analysis, project.sourceUnit, project.parts]);
 
+  // Geometria real de cada peça (no mundo), para medir o que fica diante da face
+  const zoneOptions = useMemo(() => {
+    const cache = new Map();
+    return {
+      trianglesOf: (part) => {
+        if (!cache.has(part.id))
+          cache.set(
+            part.id,
+            worldTriangles(part, analysis.meshMap, project.sourceUnit),
+          );
+        return cache.get(part.id);
+      },
+    };
+  }, [analysis, project.sourceUnit]);
+  const zonesFor = (a, part) => autoZones(a, part, project.parts, zoneOptions);
+
+  // Artes salvas antes do contorno da face: completa a face com o contorno atual
+  useEffect(() => {
+    if (
+      !arts.some(
+        (a) => a.face && typeof a.face === "object" && !("outline" in a.face),
+      )
+    )
+      return;
+    setArts((list) =>
+      list.map((a) => {
+        if (!a.face || typeof a.face !== "object" || "outline" in a.face)
+          return a;
+        const face = facesOf(partOf(a)).find((f) => f.key === a.face.key);
+        return { ...a, face: { ...a.face, outline: face?.outline || null } };
+      }),
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [facesOf]);
+
   function addPart(part) {
     const faces = facesOf(part);
-    // Começa pela face interna (a que olha para o centro do stand)
-    const i = defaultFace(faces, part, project.parts);
+    // Começa pela face livre que olha para o centro do stand; face encostada em
+    // outra peça (testeira por fora da parede) dá lugar à face vista
+    const i = defaultFace(faces, part, project.parts, zoneOptions);
     const created = newArt(
       part,
       arts.length,
       faces[i] || null,
       faces[i] ? faceLabel(faces[i], i) : "",
     );
-    created.zones = autoZones(created, part, project.parts);
+    created.zones = zonesFor(created, part);
     const next = relabel([...arts, created]);
     setArts(next);
     setCurrent(created.id);
@@ -139,7 +176,7 @@ export default function ArtBook({
     const part = partOf(art);
     if (!part) return;
     const manual = art.zones.filter((z) => !z.auto);
-    const found = autoZones(art, part, project.parts);
+    const found = zonesFor(art, part);
     update({ zones: [...found, ...manual] });
     onNotice(
       found.length
@@ -161,10 +198,7 @@ export default function ArtBook({
       w: base.w,
       h: base.h,
     };
-    next.zones = [
-      ...autoZones(next, part, project.parts),
-      ...art.zones.filter((z) => !z.auto),
-    ];
+    next.zones = [...zonesFor(next, part), ...art.zones.filter((z) => !z.auto)];
     setArts((list) => list.map((a) => (a.id === art.id ? next : a)));
   }
 
