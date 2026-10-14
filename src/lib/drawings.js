@@ -76,28 +76,41 @@ export function partSheet(project, part, meshMap, index, preview, unit = "cm") {
 
 let overviewCache = { key: "", value: null };
 /** Página de vista geral: stand inteiro com as peças do caderno destacadas e numeradas. */
-export function overviewSheet(project, parts, meshMap, preview, unit = "cm") {
-  const key = `${project.sourceUnit}|${parts.map((p) => `${p.id}:${p.meshIds.length}`).join(",")}|${meshMap.size}`;
+export function overviewSheet(
+  project,
+  parts,
+  meshMap,
+  preview,
+  unit = "cm",
+  corner = "auto",
+) {
+  const key = `${corner}|${project.sourceUnit}|${parts.map((p) => `${p.id}:${p.meshIds.length}`).join(",")}|${meshMap.size}`;
   if (overviewCache.key !== key || overviewCache.meshMap !== meshMap)
     overviewCache = {
       key,
       meshMap,
-      value: overviewImage(project, meshMap, parts, project.sourceUnit),
+      value: overviewImage(project, meshMap, parts, project.sourceUnit, {
+        corner,
+      }),
     };
-  return buildOverview({
-    unit,
-    project,
-    parts,
-    overview: overviewCache.value,
-    preview,
-  });
+  // `corner`: ângulo usado (0–3), para a tela poder girar a partir dele
+  return {
+    corner: overviewCache.value?.corner ?? 0,
+    ...buildOverview({
+      unit,
+      project,
+      parts,
+      overview: overviewCache.value,
+      preview,
+    }),
+  };
 }
 
 export async function downloadPdf(
   project,
   parts,
   meshMap,
-  { preview = false, unit = "cm" } = {},
+  { preview = false, unit = "cm", corner = "auto" } = {},
 ) {
   const { jsPDF } = await import("jspdf");
   const pdf = new jsPDF({
@@ -149,7 +162,10 @@ export async function downloadPdf(
   pdf.text(`SHA-256: ${project.file.hash}`, 18, 193);
   if (parts.length) {
     pdf.addPage();
-    drawSheetPdf(pdf, overviewSheet(project, parts, meshMap, preview, unit));
+    drawSheetPdf(
+      pdf,
+      overviewSheet(project, parts, meshMap, preview, unit, corner),
+    );
   }
   for (const [index, part] of parts.entries()) {
     pdf.addPage();

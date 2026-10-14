@@ -1,5 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
-import { FileDown, FileJson, CheckCircle2, ArrowRight } from "lucide-react";
+import {
+  FileDown,
+  FileJson,
+  CheckCircle2,
+  ArrowRight,
+  RotateCw,
+} from "lucide-react";
 import { progress } from "../domain/project.js";
 import {
   downloadPdf,
@@ -30,6 +36,17 @@ function savedUnit() {
   }
 }
 
+// Ângulo da vista geral escolhido por projeto ("auto" ou canto 0–3), neste navegador
+const cornerKey = (id) => `dt.overviewCorner.${id}`;
+function savedCorner(id) {
+  try {
+    const v = localStorage.getItem(cornerKey(id));
+    return v === null || v === "auto" ? "auto" : Number(v);
+  } catch {
+    return "auto";
+  }
+}
+
 export default function Drawings({
   project,
   analysis,
@@ -41,7 +58,17 @@ export default function Drawings({
   const [partId, setPartId] = useState(null),
     [exporting, setExporting] = useState(false),
     [sheet, setSheet] = useState(null),
-    [unit, setUnit] = useState(savedUnit);
+    [unit, setUnit] = useState(savedUnit),
+    [corner, setCorner] = useState(() => savedCorner(project.id)),
+    [shownCorner, setShownCorner] = useState(0);
+  const chooseCorner = (c) => {
+    setCorner(c);
+    try {
+      localStorage.setItem(cornerKey(project.id), String(c));
+    } catch {
+      /* sem armazenamento: vale só nesta sessão */
+    }
+  };
   const chooseUnit = (u) => {
     setUnit(u);
     try {
@@ -67,19 +94,24 @@ export default function Drawings({
     setSheet(null);
     const timer = setTimeout(() => {
       try {
-        setSheet(
-          sheetSvg(
-            part
-              ? partSheet(project, part, analysis.meshMap, index, preview, unit)
-              : overviewSheet(project, parts, analysis.meshMap, preview, unit),
-          ),
-        );
+        const built = part
+          ? partSheet(project, part, analysis.meshMap, index, preview, unit)
+          : overviewSheet(
+              project,
+              parts,
+              analysis.meshMap,
+              preview,
+              unit,
+              corner,
+            );
+        if (!part) setShownCorner(built.corner);
+        setSheet(sheetSvg(built));
       } catch (e) {
         onError(`Não foi possível desenhar a folha. ${e.message}`);
       }
     }, 30);
     return () => clearTimeout(timer);
-  }, [part, parts, index, project, analysis, preview, unit, onError]);
+  }, [part, parts, index, project, analysis, preview, unit, corner, onError]);
 
   return (
     <section className="documents-screen">
@@ -177,10 +209,32 @@ export default function Drawings({
           {!parts.length ? (
             <p>As folhas técnicas aparecem aqui depois da validação.</p>
           ) : sheet ? (
-            <div
-              className="technical-sheet"
-              dangerouslySetInnerHTML={{ __html: sheet }}
-            />
+            <>
+              {!part && (
+                <div className="overview-tools">
+                  <button
+                    type="button"
+                    className="button secondary"
+                    onClick={() => chooseCorner((shownCorner + 1) % 4)}
+                  >
+                    <RotateCw size={15} /> Girar vista
+                  </button>
+                  {corner !== "auto" && (
+                    <button
+                      type="button"
+                      className="text-button"
+                      onClick={() => chooseCorner("auto")}
+                    >
+                      Voltar ao ângulo automático
+                    </button>
+                  )}
+                </div>
+              )}
+              <div
+                className="technical-sheet"
+                dangerouslySetInnerHTML={{ __html: sheet }}
+              />
+            </>
           ) : (
             <p className="sheet-loading">
               Desenhando vistas, linhas ocultas e raios…
@@ -213,6 +267,7 @@ export default function Drawings({
               await downloadPdf(project, parts, analysis.meshMap, {
                 preview,
                 unit,
+                corner,
               });
             } catch (e) {
               onError(e.message);
