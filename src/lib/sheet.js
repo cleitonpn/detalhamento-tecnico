@@ -9,8 +9,7 @@ import {
   detectArcs,
   chainStations,
   pickScale,
-  mm,
-  mm1,
+  fmtLen,
   smoothEdges,
   silhouettes,
 } from "./techdraw.js";
@@ -135,6 +134,7 @@ export function analyzePart(part, meshMap, sourceUnit) {
 
 /** Monta a folha (primitivas em mm, origem no canto superior esquerdo). */
 export function buildSheet({
+  unit = "cm",
   project,
   part,
   analysis,
@@ -144,6 +144,8 @@ export function buildSheet({
   finish,
 }) {
   const items = [];
+  const L = (m) => fmtLen(m, unit),
+    L1 = (m) => fmtLen(m, unit, true);
   const line = (x1, y1, x2, y2, w = 0.25, color = INK, dash) =>
     items.push({ t: "line", x1, y1, x2, y2, w, color, dash });
   const text = (x, y, s, size = 2.6, o = {}) =>
@@ -187,7 +189,7 @@ export function buildSheet({
 
   // Ticks oblíquos nas extremidades da cota (padrão de desenho de marcenaria)
   const tick = (x, y) => line(x - 1, y + 1, x + 1, y - 1, 0.3, DIM);
-  const dimH = (xa, xb, yLine, yRef, label) => {
+  const dimH = (xa, xb, yLine, yRef, label, alt = false) => {
     if (Math.abs(xb - xa) < 0.6) return;
     line(xa, yRef, xa, yLine + (yLine > yRef ? 1.5 : -1.5), 0.13, DIM);
     line(xb, yRef, xb, yLine + (yLine > yRef ? 1.5 : -1.5), 0.13, DIM);
@@ -196,14 +198,23 @@ export function buildSheet({
     tick(xb, yLine);
     // Sem espaço entre as linhas de chamada, o texto vai para fora, à direita
     if (Math.abs(xb - xa) < label.length * 1.5 + 1)
-      text(Math.max(xa, xb) + 2, yLine + 0.8, label, 2.1, { color: DIM });
+      text(
+        alt ? Math.min(xa, xb) - 2 : Math.max(xa, xb) + 2,
+        yLine + 0.8,
+        label,
+        2.1,
+        {
+          color: DIM,
+          anchor: alt ? "end" : "start",
+        },
+      );
     else
       text((xa + xb) / 2, yLine - 0.9, label, 2.3, {
         color: DIM,
         anchor: "middle",
       });
   };
-  const dimV = (ya, yb, xLine, xRef, label) => {
+  const dimV = (ya, yb, xLine, xRef, label, alt = false) => {
     if (Math.abs(yb - ya) < 0.6) return;
     line(xRef, ya, xLine + (xLine > xRef ? 1.5 : -1.5), ya, 0.13, DIM);
     line(xRef, yb, xLine + (xLine > xRef ? 1.5 : -1.5), yb, 0.13, DIM);
@@ -213,10 +224,16 @@ export function buildSheet({
     tk(yb);
     // Sem espaço, o texto sobe acima da linha de chamada superior
     if (Math.abs(yb - ya) < label.length * 1.5 + 1)
-      text(xLine + 0.8, Math.min(ya, yb) - 2, label, 2.1, {
-        color: DIM,
-        rot: -90,
-      });
+      text(
+        xLine + 0.8,
+        alt ? Math.max(ya, yb) + 2 + label.length * 1.15 : Math.min(ya, yb) - 2,
+        label,
+        2.1,
+        {
+          color: DIM,
+          rot: -90,
+        },
+      );
     else
       text(xLine - 0.9, (ya + yb) / 2, label, 2.3, {
         color: DIM,
@@ -263,14 +280,15 @@ export function buildSheet({
           X(v.chainX[i]),
           bottom + 5,
           bottom + 0.8,
-          mm(v.chainX[i] - v.chainX[i - 1]),
+          L(v.chainX[i] - v.chainX[i - 1]),
+          i % 2 === 0,
         );
     dimH(
       X(0),
       X(v.width),
       bottom + (v.chainX ? 10.5 : 5.5),
       bottom + 0.8,
-      mm(v.width),
+      L(v.width),
     );
     if (v.chainY)
       for (let i = 1; i < v.chainY.length; i++)
@@ -279,14 +297,15 @@ export function buildSheet({
           Y(v.chainY[i]),
           left - 5,
           left - 0.8,
-          mm(v.chainY[i] - v.chainY[i - 1]),
+          L(v.chainY[i] - v.chainY[i - 1]),
+          i % 2 === 0,
         );
     dimV(
       Y(0),
       Y(v.height),
       left - (v.chainY ? 10.5 : 5.5),
       left - 0.8,
-      mm(v.height),
+      L(v.height),
     );
 
     // Raios: chamada curta junto ao arco (sem linha atravessando a folha).
@@ -317,8 +336,8 @@ export function buildSheet({
         );
       const many = a.count > 1 ? ` (${a.count}×)` : "";
       const full = a.full
-        ? `${a.id} Ø${mm(a.r * 2)}${many}`
-        : `${a.id} R${mm1(a.r)}${many}`;
+        ? `${a.id} Ø${L(a.r * 2)}${many}`
+        : `${a.id} R${L1(a.r)}${many}`;
       // Procura uma posição livre ao longo da chamada; sem espaço, fica só o ID (detalhes na tabela)
       let placed = false;
       for (const [step, label] of [
@@ -418,7 +437,7 @@ export function buildSheet({
   );
   y += 6.5;
   const [W, H, D] = part.dimensions;
-  text(sx, y, `L ${mm(W)} × A ${mm(H)} × P ${mm(D)} mm`, 2.8);
+  text(sx, y, `L ${L(W)} × A ${L(H)} × P ${L(D)} ${unit}`, 2.8);
   y += 9;
   text(sx, y, "RAIOS", 2.3, { bold: true });
   line(sx, y + 1.5, sx + sw, y + 1.5, 0.15, SOFT);
@@ -464,8 +483,8 @@ export function buildSheet({
         sx + 8,
         y,
         a.full
-          ? `Ø ${mm(2 * a.r)}`
-          : `${mm1(a.r)}${a.role ? ` ${a.role === "interno" ? "int." : "ext."}` : ""}`,
+          ? `Ø ${L(2 * a.r)}`
+          : `${L1(a.r)}${a.role ? ` ${a.role === "interno" ? "int." : "ext."}` : ""}`,
         2.2,
       );
       text(
@@ -476,7 +495,7 @@ export function buildSheet({
           : `${deg.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}°`,
         2.2,
       );
-      text(sx + 39, y, mm(a.length), 2.2);
+      text(sx + 39, y, L(a.length), 2.2);
       text(
         sx + 54,
         y,
@@ -485,10 +504,10 @@ export function buildSheet({
       );
       y += 3.6;
       const note = [
-        a.chord ? `corda ${mm(a.chord)} · flecha ${mm1(a.sagitta)}` : "",
+        a.chord ? `corda ${L(a.chord)} · flecha ${L1(a.sagitta)}` : "",
         a.count > 1 ? `${a.count} iguais` : "",
         `${a.segments} seg. · confiança ${a.confidence}`,
-        a.thickness ? `esp. ${mm1(a.thickness)}` : "",
+        a.thickness ? `esp. ${L1(a.thickness)}` : "",
       ]
         .filter(Boolean)
         .join(" · ");
@@ -533,7 +552,7 @@ export function buildSheet({
   text(sx, by + 34, "ESCALA", 1.8, { color: SOFT, bold: true });
   text(sx, by + 38.5, `1:${scale}`, 3.4, { bold: true });
   text(sx + 26, by + 34, "COTAS", 1.8, { color: SOFT, bold: true });
-  text(sx + 26, by + 38.5, "mm", 3.4, { bold: true });
+  text(sx + 26, by + 38.5, unit, 3.4, { bold: true });
   text(sx + 48, by + 34, "REVISÃO", 1.8, { color: SOFT, bold: true });
   text(
     sx + 48,
@@ -566,8 +585,15 @@ export function buildSheet({
  * Página de vista geral: o stand inteiro em isométrica, com as peças do caderno
  * destacadas e numeradas como as folhas, e a legenda ao lado.
  */
-export function buildOverview({ project, parts, overview, preview }) {
+export function buildOverview({
+  project,
+  parts,
+  overview,
+  preview,
+  unit = "cm",
+}) {
   const items = [];
+  const L = (m) => fmtLen(m, unit);
   const line = (x1, y1, x2, y2, w = 0.25, color = INK) =>
     items.push({ t: "line", x1, y1, x2, y2, w, color });
   const text = (x, y, s, size = 2.6, o = {}) =>
@@ -682,7 +708,7 @@ export function buildOverview({ project, parts, overview, preview }) {
     });
     text(sx + 7, y, p.label.slice(0, 26), 2.1);
     const [W, H, D] = p.dimensions;
-    text(sx + sw, y, `${mm(W)}×${mm(H)}×${mm(D)}`, 1.8, {
+    text(sx + sw, y, `${L(W)}×${L(H)}×${L(D)}`, 1.8, {
       anchor: "end",
       color: SOFT,
     });
@@ -699,7 +725,7 @@ export function buildOverview({ project, parts, overview, preview }) {
   const by = PAGE.h - M - 24;
   line(colX, by, PAGE.w - M, by, 0.4);
   text(sx, by + 6, "COTAS", 1.8, { color: SOFT, bold: true });
-  text(sx, by + 10.5, "mm (L×A×P)", 3, { bold: true });
+  text(sx, by + 10.5, `${unit} (L×A×P)`, 3, { bold: true });
   text(sx + 40, by + 6, "REVISÃO", 1.8, { color: SOFT, bold: true });
   text(
     sx + 40,

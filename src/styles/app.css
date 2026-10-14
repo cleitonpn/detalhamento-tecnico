@@ -1390,3 +1390,34 @@ a {
   padding: 24px 12px;
   line-height: 1.5;
 }
+
+/* Unidade das cotas no caderno */
+.unit-switch {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 14px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.unit-switch span {
+  margin-right: 4px;
+}
+.unit-switch button {
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--text-mid);
+  border-radius: var(--r-sm, 6px);
+  padding: 4px 10px;
+  font: inherit;
+  cursor: pointer;
+}
+.unit-switch button.active {
+  background: var(--surface-3);
+  color: var(--text);
+  border-color: var(--line-lit, var(--line));
+}
+.unit-switch button:focus-visible {
+  outline: 2px solid var(--brand-green);
+  outline-offset: 2px;
+}

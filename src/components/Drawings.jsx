@@ -20,6 +20,16 @@ export function downloadJson(value, name) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
+// Unidade das cotas: preferência de quem usa, guardada só neste navegador
+const UNIT_KEY = "dt.drawingUnit";
+function savedUnit() {
+  try {
+    return localStorage.getItem(UNIT_KEY) === "mm" ? "mm" : "cm";
+  } catch {
+    return "cm";
+  }
+}
+
 export default function Drawings({
   project,
   analysis,
@@ -30,7 +40,16 @@ export default function Drawings({
 }) {
   const [partId, setPartId] = useState(null),
     [exporting, setExporting] = useState(false),
-    [sheet, setSheet] = useState(null);
+    [sheet, setSheet] = useState(null),
+    [unit, setUnit] = useState(savedUnit);
+  const chooseUnit = (u) => {
+    setUnit(u);
+    try {
+      localStorage.setItem(UNIT_KEY, u);
+    } catch {
+      /* sem armazenamento: vale só nesta sessão */
+    }
+  };
   const p = progress(project);
   // O caderno mostra só o que a equipe validou
   const parts = useMemo(() => sheetParts(project), [project]);
@@ -51,8 +70,8 @@ export default function Drawings({
         setSheet(
           sheetSvg(
             part
-              ? partSheet(project, part, analysis.meshMap, index, preview)
-              : overviewSheet(project, parts, analysis.meshMap, preview),
+              ? partSheet(project, part, analysis.meshMap, index, preview, unit)
+              : overviewSheet(project, parts, analysis.meshMap, preview, unit),
           ),
         );
       } catch (e) {
@@ -60,7 +79,7 @@ export default function Drawings({
       }
     }, 30);
     return () => clearTimeout(timer);
-  }, [part, parts, index, project, analysis, preview, onError]);
+  }, [part, parts, index, project, analysis, preview, unit, onError]);
 
   return (
     <section className="documents-screen">
@@ -70,7 +89,7 @@ export default function Drawings({
           <h1>Caderno técnico</h1>
           <p>
             Vista geral do stand com as peças destacadas e uma folha por peça
-            validada: vistas na mesma escala, cotas em mm, raios das partes
+            validada: vistas na mesma escala, cotas em {unit}, raios das partes
             curvas e perspectiva de apoio.
           </p>
         </div>
@@ -108,6 +127,24 @@ export default function Drawings({
       </div>
       <div className="drawing-layout">
         <aside className="drawing-list">
+          <div
+            className="unit-switch"
+            role="group"
+            aria-label="Unidade das cotas"
+          >
+            <span>Cotas em</span>
+            {["cm", "mm"].map((u) => (
+              <button
+                key={u}
+                type="button"
+                className={u === unit ? "active" : ""}
+                aria-pressed={u === unit}
+                onClick={() => chooseUnit(u)}
+              >
+                {u}
+              </button>
+            ))}
+          </div>
           <h2>Peças do caderno</h2>
           {parts.length > 0 && (
             <button
@@ -173,7 +210,10 @@ export default function Drawings({
           onClick={async () => {
             setExporting(true);
             try {
-              await downloadPdf(project, parts, analysis.meshMap, { preview });
+              await downloadPdf(project, parts, analysis.meshMap, {
+                preview,
+                unit,
+              });
             } catch (e) {
               onError(e.message);
             } finally {

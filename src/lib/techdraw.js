@@ -573,6 +573,14 @@ export function pickScale(sizesM, areaMm) {
   return SCALES.at(-1);
 }
 
+/** Unidade das cotas da folha: centímetros (padrão) ou milímetros. */
+export const DRAWING_UNITS = { cm: 100, mm: 1000 };
+export function fmtLen(m, unit = "cm", fine = false) {
+  const v = m * (DRAWING_UNITS[unit] || 100);
+  const digits =
+    unit === "mm" ? (fine && v < 100 ? 1 : 0) : fine && v < 10 ? 2 : 1;
+  return v.toLocaleString("pt-BR", { maximumFractionDigits: digits });
+}
 export const mm = (m) => Math.round(m * 1000).toLocaleString("pt-BR");
 export const mm1 = (m) =>
   (m * 1000).toLocaleString("pt-BR", {
