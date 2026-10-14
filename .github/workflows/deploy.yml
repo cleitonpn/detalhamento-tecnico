@@ -80,6 +80,11 @@ jobs:
         env:
           DT_BUCKET: ${{ vars.FIREBASE_STORAGE_BUCKET }}
         run: node functions/tools/cors.mjs
+      - name: Ativar a API de faturamento (o deploy das Functions confere o plano Blaze)
+        if: inputs.publish_functions && inputs.config == 'proprio'
+        run: |
+          gcloud auth activate-service-account --key-file="$GOOGLE_APPLICATION_CREDENTIALS" --quiet
+          gcloud services enable cloudbilling.googleapis.com --project "$DT_PROJECT" --quiet
       - name: Publicar Functions da aplicação
         if: inputs.publish_functions
         run: npx firebase deploy --config "$DT_FIREBASE_JSON" --only functions:detalhamento --project "$DT_PROJECT" --non-interactive --force
