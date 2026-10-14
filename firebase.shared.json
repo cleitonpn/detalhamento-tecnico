@@ -15,7 +15,7 @@
     {
       "source": "functions",
       "codebase": "detalhamento",
-      "ignore": ["node_modules", ".git", "tests", "*.local", ".env.example"]
+      "ignore": ["node_modules", ".git", "tests", "tools", "*.local", ".env.example"]
     }
   ]
 }

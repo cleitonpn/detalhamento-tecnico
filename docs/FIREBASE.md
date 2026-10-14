@@ -1,5 +1,25 @@
 # Firebase: instalação independente e servidor compartilhado
 
+## Projeto próprio do Detalha (em uso: `detalha-4d771`)
+
+O Detalha usa um projeto Firebase só dele, separado do Studio: regras, custos e cotas não afetam os outros aplicativos.
+
+**No Console do Firebase (uma vez):**
+
+1. Plano **Blaze** (as Functions exigem).
+2. **Authentication → Método de login:** ativar **E-mail/senha**. Criar os usuários em **Authentication → Usuários**.
+3. **Firestore Database:** criar o banco em modo produção (região `southamerica-east1`).
+4. **Storage:** criar o bucket padrão (mesma região).
+5. A conta de serviço do segredo `FIREBASE_SERVICE_ACCOUNT` precisa de permissão para publicar: *Administrador do Firebase*, *Administrador do Cloud Functions* e *Usuário da conta de serviço* (IAM do Google Cloud).
+
+**No GitHub (variáveis do repositório, públicas):** `FIREBASE_API_KEY`, `FIREBASE_AUTH_DOMAIN`, `FIREBASE_STORAGE_BUCKET` e `FIREBASE_APP_ID`, copiadas do app web do projeto.
+
+**Publicar:** Actions → *Publicar detalhamento (manual)* com `config = proprio` e `mode = firebase`. O workflow publica as regras de Firestore e Storage deste repositório, libera o CORS do bucket para `detalha-4d771.web.app`, as Functions e o site.
+
+**Dar acesso:** Actions → *Dar acesso ao Detalha (manual)* com o e-mail do usuário e o papel (owner, editor, viewer). O primeiro usuário cria o espaço da equipe `uset`. Para suspender, rode de novo com "Acesso ativo" desmarcado.
+
+O GitHub Pages continua publicando a versão local (sem servidor) como demonstração.
+
 ## Duas configurações
 
 **Independente:** usar um projeto Firebase próprio, configuração web própria, `firebase.json` e suas regras. A aplicação não depende das contas, projetos ou ordens do Studio.
