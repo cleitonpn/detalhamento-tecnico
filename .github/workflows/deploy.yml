@@ -5,15 +5,21 @@ on:
       project_id:
         description: Projeto Firebase de destino
         required: true
-        default: personalizacao-stand
+        default: detalha-4d771
       site_id:
-        description: ID do site NOVO (não usar o site do Studio)
+        description: Site do Hosting (no projeto próprio, o próprio ID do projeto)
         required: true
+        default: detalha-4d771
+      config:
+        description: "proprio: projeto só do Detalha (publica regras); compartilhado: projeto do Studio (não toca nas regras)"
+        type: choice
+        options: [proprio, compartilhado]
+        default: proprio
       mode:
         description: Modo de armazenamento do frontend
         type: choice
-        options: [local, firebase]
-        default: local
+        options: [firebase, local]
+        default: firebase
       publish_functions:
         description: Publicar a codebase detalhamento
         type: boolean
@@ -26,6 +32,8 @@ jobs:
     env:
       DT_PROJECT: ${{ inputs.project_id }}
       DT_SITE: ${{ inputs.site_id }}
+      DT_CONFIG: ${{ inputs.config }}
+      DT_FIREBASE_JSON: ${{ inputs.config == 'proprio' && 'firebase.json' || 'firebase.shared.json' }}
       VITE_STORAGE_MODE: ${{ inputs.mode }}
       VITE_APP_NAME: ${{ vars.APP_NAME || 'Detalha' }}
       VITE_FIREBASE_API_KEY: ${{ vars.FIREBASE_API_KEY }}
@@ -43,9 +51,12 @@ jobs:
       - name: Validar destino e configuração
         run: |
           node --input-type=module - <<'JS'
-          const {DT_PROJECT:p,DT_SITE:s,VITE_STORAGE_MODE:mode,VITE_FIREBASE_API_KEY:key,VITE_FIREBASE_APP_ID:app}=process.env;
+          const {DT_PROJECT:p,DT_SITE:s,DT_CONFIG:c,VITE_STORAGE_MODE:mode,VITE_FIREBASE_API_KEY:key,VITE_FIREBASE_APP_ID:app}=process.env;
           if(!/^[a-z][a-z0-9-]{4,62}$/.test(p||'')||!/^[a-z0-9-]{4,63}$/.test(s||''))throw Error('Projeto ou site inválido.');
-          if(s===p||s==='personalizacao-stand')throw Error('Informe um site próprio para o detalhamento.');
+          // No projeto compartilhado o site precisa ser novo, para não substituir o Studio
+          if(c==='compartilhado'&&(s===p||s==='personalizacao-stand'))throw Error('Informe um site próprio para o detalhamento.');
+          // As regras deste repositório só podem ser publicadas num projeto exclusivo do Detalha
+          if(c==='proprio'&&p==='personalizacao-stand')throw Error('O projeto do Studio é compartilhado: use config=compartilhado.');
           if(mode==='firebase'&&(!key||!app))throw Error('Configure as variáveis públicas FIREBASE_API_KEY e FIREBASE_APP_ID.');
           JS
       - run: npm ci && npm --prefix functions ci
@@ -57,15 +68,23 @@ jobs:
           test -n "$FIREBASE_SERVICE_ACCOUNT"
           printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$RUNNER_TEMP/detalhamento-sa.json"
           echo "GOOGLE_APPLICATION_CREDENTIALS=$RUNNER_TEMP/detalhamento-sa.json" >> "$GITHUB_ENV"
-      - name: Associar site próprio
+      - name: Associar site
         run: |
           npx firebase hosting:sites:get "$DT_SITE" --project "$DT_PROJECT" --non-interactive
-          npx firebase target:apply hosting detalhamento "$DT_SITE" --project "$DT_PROJECT" --non-interactive
+          npx firebase target:apply hosting detalhamento "$DT_SITE" --config "$DT_FIREBASE_JSON" --project "$DT_PROJECT" --non-interactive
+      - name: Publicar regras do Firestore e do Storage (projeto próprio)
+        if: inputs.config == 'proprio'
+        run: npx firebase deploy --config firebase.json --only firestore,storage --project "$DT_PROJECT" --non-interactive
+      - name: Liberar leitura dos modelos no navegador (CORS do Storage)
+        if: inputs.config == 'proprio' && inputs.mode == 'firebase'
+        env:
+          DT_BUCKET: ${{ vars.FIREBASE_STORAGE_BUCKET }}
+        run: node functions/tools/cors.mjs
       - name: Publicar Functions da aplicação
         if: inputs.publish_functions
-        run: npx firebase deploy --config firebase.shared.json --only functions:detalhamento --project "$DT_PROJECT" --non-interactive
-      - name: Publicar site próprio
-        run: npx firebase deploy --config firebase.shared.json --only hosting:detalhamento --project "$DT_PROJECT" --non-interactive
+        run: npx firebase deploy --config "$DT_FIREBASE_JSON" --only functions:detalhamento --project "$DT_PROJECT" --non-interactive --force
+      - name: Publicar site
+        run: npx firebase deploy --config "$DT_FIREBASE_JSON" --only hosting:detalhamento --project "$DT_PROJECT" --non-interactive
       - name: Remover arquivo de credencial
         if: always()
         run: rm -f "$RUNNER_TEMP/detalhamento-sa.json"

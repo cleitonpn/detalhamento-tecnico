@@ -1,0 +1,59 @@
+name: Dar acesso ao Detalha (manual)
+on:
+  workflow_dispatch:
+    inputs:
+      email:
+        description: E-mail do usuário (criado antes em Authentication no Console do Firebase)
+        required: true
+      role:
+        description: Papel no espaço
+        type: choice
+        options: [owner, editor, viewer]
+        default: editor
+      workspace:
+        description: Espaço de trabalho
+        required: true
+        default: uset
+      active:
+        description: Acesso ativo (desmarque para suspender)
+        type: boolean
+        default: true
+      project_id:
+        description: Projeto Firebase próprio do Detalha
+        required: true
+        default: detalha-4d771
+permissions:
+  contents: read
+jobs:
+  provision:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: functions/package-lock.json
+      - name: Recusar o projeto compartilhado do Studio
+        run: test "${{ inputs.project_id }}" != "personalizacao-stand"
+      - run: npm --prefix functions ci
+      - name: Preparar credencial
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: |
+          test -n "$FIREBASE_SERVICE_ACCOUNT"
+          printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$RUNNER_TEMP/detalhamento-sa.json"
+          echo "GOOGLE_APPLICATION_CREDENTIALS=$RUNNER_TEMP/detalhamento-sa.json" >> "$GITHUB_ENV"
+      - name: Dar acesso
+        env:
+          DT_PROJECT: ${{ inputs.project_id }}
+          DT_EMAIL: ${{ inputs.email }}
+          DT_ROLE: ${{ inputs.role }}
+          DT_WORKSPACE: ${{ inputs.workspace }}
+          DT_ACTIVE: ${{ inputs.active }}
+        run: |
+          echo "::add-mask::$DT_EMAIL"
+          node functions/tools/provision.mjs
+      - name: Remover arquivo de credencial
+        if: always()
+        run: rm -f "$RUNNER_TEMP/detalhamento-sa.json"
