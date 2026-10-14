@@ -15,6 +15,7 @@ import {
   FolderOpen,
   X,
   Link2,
+  Palette,
   ArrowLeft,
   Plus,
   LoaderCircle,
@@ -24,6 +25,7 @@ import Viewer from "./components/Viewer.jsx";
 import Inspector from "./components/Inspector.jsx";
 import Drawings, { downloadJson } from "./components/Drawings.jsx";
 import Export3D from "./components/Export3D.jsx";
+import ArtBook from "./components/ArtBook.jsx";
 import Login from "./components/Login.jsx";
 import materials from "./data/materials.json";
 import {
@@ -538,6 +540,13 @@ export default function App() {
             <Box size={15} />
             Exportar 3D
           </button>
+          <button
+            className={`text-button ${tab === "art" ? "active" : ""}`}
+            onClick={() => setTab("art")}
+          >
+            <Palette size={15} />
+            Caderno de arte
+          </button>
           <button className="text-button" onClick={() => setModal("project")}>
             Dados do projeto
           </button>
@@ -560,7 +569,7 @@ export default function App() {
       )}
       <div
         className={
-          tab === "drawings" || tab === "export"
+          tab === "drawings" || tab === "export" || tab === "art"
             ? "workspace hidden-workspace"
             : "workspace"
         }
@@ -823,6 +832,15 @@ export default function App() {
           />
         )}
       </div>
+      {project && tab === "art" && (
+        <ArtBook
+          project={project}
+          analysis={analysis}
+          onBack={() => setTab("validate")}
+          onError={setError}
+          onNotice={setNotice}
+        />
+      )}
       {project && tab === "export" && (
         <Export3D
           project={project}

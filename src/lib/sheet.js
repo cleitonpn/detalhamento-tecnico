@@ -591,6 +591,10 @@ export function buildOverview({
   overview,
   preview,
   unit = "cm",
+  title = "VISTA GERAL DO STAND (ISOMÉTRICA, SEM ESCALA)",
+  heading = "Vista geral",
+  legend = "Peças deste caderno",
+  tag = (i) => String(i + 1).padStart(2, "0"),
 }) {
   const items = [];
   const L = (m) => fmtLen(m, unit);
@@ -623,7 +627,7 @@ export function buildOverview({
   const colX = PAGE.w - M - SIDE_W;
   line(colX, M, colX, PAGE.h - M, 0.4);
   const area = { x: M + 4, y: M + 10, w: colX - M - 8, h: PAGE.h - 2 * M - 16 };
-  text(M + 3, M + 5, "VISTA GERAL DO STAND (ISOMÉTRICA, SEM ESCALA)", 2.4, {
+  text(M + 3, M + 5, title, 2.4, {
     bold: true,
   });
   if (overview) {
@@ -645,7 +649,7 @@ export function buildOverview({
         color: ACCENT,
         w: 0.35,
       });
-      text(cx, cy + 0.85, String(n).padStart(2, "0"), 2.1, {
+      text(cx, cy + 0.85, tag(n - 1), 2.1, {
         anchor: "middle",
         bold: true,
         color: ACCENT,
@@ -671,7 +675,7 @@ export function buildOverview({
     { color: SOFT, bold: true },
   );
   y += 7;
-  text(sx, y, "Vista geral", 4, { bold: true });
+  text(sx, y, heading, 4, { bold: true });
   y += 7;
   items.push({
     t: "box",
@@ -683,7 +687,7 @@ export function buildOverview({
     color: ACCENT,
     wd: 0.25,
   });
-  text(sx + 5, y, `Peças deste caderno (${parts.length})`, 2.3);
+  text(sx + 5, y, `${legend} (${parts.length})`, 2.3);
   y += 5;
   items.push({
     t: "box",
@@ -702,7 +706,7 @@ export function buildOverview({
   y += 5.5;
   const maxRows = Math.floor((PAGE.h - M - 30 - y) / 4);
   parts.slice(0, maxRows).forEach((p, i) => {
-    text(sx, y, String(i + 1).padStart(2, "0"), 2.1, {
+    text(sx, y, tag(i), 2.1, {
       bold: true,
       color: ACCENT,
     });
