@@ -29,7 +29,7 @@ export const VIEW_DEFS = {
 };
 
 const edgeCache = new WeakMap();
-function featureEdges(geometry) {
+export function featureEdges(geometry) {
   let edges = edgeCache.get(geometry);
   if (!edges) {
     const g = new THREE.EdgesGeometry(geometry, FEATURE_ANGLE);

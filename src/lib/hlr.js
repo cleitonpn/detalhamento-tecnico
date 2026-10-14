@@ -1,6 +1,7 @@
 // Linhas ocultas e vista 3D com WebGL. Fora do navegador (testes) tudo é tratado como visível.
 import * as THREE from "three";
-import { VIEW_DEFS } from "./techdraw.js";
+import { VIEW_DEFS, featureEdges } from "./techdraw.js";
+import { SCALE } from "../domain/project.js";
 
 let shared = null;
 function renderer() {
@@ -263,4 +264,192 @@ export function isometricImage(
   eGeo.dispose();
   eMat.dispose();
   return url;
+}
+
+const edgeGeoCache = new WeakMap();
+function edgeGeometry(geometry) {
+  let g = edgeGeoCache.get(geometry);
+  if (!g) {
+    g = new THREE.BufferGeometry();
+    g.setAttribute(
+      "position",
+      new THREE.BufferAttribute(featureEdges(geometry), 3),
+    );
+    edgeGeoCache.set(geometry, g);
+  }
+  return g;
+}
+
+/**
+ * Vista isométrica do stand inteiro: peças do caderno em destaque, demais em cinza.
+ * Devolve a imagem e a posição (0–1) do marcador numerado de cada peça destacada.
+ */
+export function overviewImage(
+  project,
+  meshMap,
+  highlighted,
+  sourceUnit,
+  { width = 1600, height = 1200 } = {},
+) {
+  const gl = renderer();
+  if (!gl || !meshMap.size) return null;
+  const scale = SCALE[sourceUnit] || 1;
+  const owner = new Map();
+  highlighted.forEach((p, i) => p.meshIds.forEach((id) => owner.set(id, i)));
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0xffffff);
+  const mats = {
+    on: new THREE.MeshLambertMaterial({
+      color: 0x8fd9b8,
+      side: THREE.DoubleSide,
+      polygonOffset: true,
+      polygonOffsetFactor: 1,
+      polygonOffsetUnits: 1,
+    }),
+    // Demais peças como "fantasma": a peça destacada aparece mesmo atrás de uma parede
+    off: new THREE.MeshLambertMaterial({
+      color: 0xe3e8ed,
+      side: THREE.DoubleSide,
+      transparent: true,
+      opacity: 0.32,
+      depthWrite: false,
+    }),
+    onEdge: new THREE.LineBasicMaterial({ color: 0x0b5c46 }),
+    offEdge: new THREE.LineBasicMaterial({
+      color: 0xb4bec8,
+      transparent: true,
+      opacity: 0.55,
+    }),
+  };
+  const S = new THREE.Matrix4().makeScale(scale, scale, scale);
+  const box = new THREE.Box3();
+  const fills = [],
+    edges = [];
+  for (const [id, mesh] of meshMap) {
+    if (!mesh.geometry?.attributes.position) continue;
+    mesh.updateWorldMatrix(true, false);
+    const m = new THREE.Matrix4().multiplyMatrices(S, mesh.matrixWorld);
+    const on = owner.has(id);
+    const fill = new THREE.Mesh(mesh.geometry, on ? mats.on : mats.off);
+    const lines = new THREE.LineSegments(
+      edgeGeometry(mesh.geometry),
+      on ? mats.onEdge : mats.offEdge,
+    );
+    fill.userData.on = on;
+    fills.push(fill);
+    edges.push(lines);
+    for (const o of [fill, lines]) {
+      o.matrixAutoUpdate = false;
+      o.matrix.copy(m);
+      scene.add(o);
+    }
+    if (!mesh.geometry.boundingBox) mesh.geometry.computeBoundingBox();
+    box.union(mesh.geometry.boundingBox.clone().applyMatrix4(m));
+  }
+  if (box.isEmpty()) return null;
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x8a96a3, 1.6));
+  const sun = new THREE.DirectionalLight(0xffffff, 1.3);
+  sun.position.set(-0.6, 1, 0.9);
+  scene.add(sun);
+
+  const center = box.getCenter(new THREE.Vector3());
+  const span = box.getSize(new THREE.Vector3()).length() || 1;
+  const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.001, span * 10);
+  const aim = (dir, aspect) => {
+    camera.position
+      .copy(center)
+      .addScaledVector(dir.clone().normalize(), span * 2);
+    camera.lookAt(center);
+    camera.updateMatrixWorld();
+    const pts = [];
+    for (let i = 0; i < 8; i++)
+      pts.push(
+        new THREE.Vector3(
+          i & 1 ? box.max.x : box.min.x,
+          i & 2 ? box.max.y : box.min.y,
+          i & 4 ? box.max.z : box.min.z,
+        ).applyMatrix4(camera.matrixWorldInverse),
+      );
+    const xs = pts.map((p) => p.x),
+      ys = pts.map((p) => p.y);
+    let halfW = ((Math.max(...xs) - Math.min(...xs)) / 2) * 1.06,
+      halfH = ((Math.max(...ys) - Math.min(...ys)) / 2) * 1.06;
+    if (halfW / halfH > aspect) halfH = halfW / aspect;
+    else halfW = halfH * aspect;
+    const mx = (Math.max(...xs) + Math.min(...xs)) / 2,
+      my = (Math.max(...ys) + Math.min(...ys)) / 2;
+    Object.assign(camera, {
+      left: mx - halfW,
+      right: mx + halfW,
+      top: my + halfH,
+      bottom: my - halfH,
+    });
+    camera.updateProjectionMatrix();
+  };
+  const aspect = width / height;
+
+  // Escolhe, entre os 4 cantos isométricos, o que mais mostra as peças destacadas:
+  // render rápido com as demais peças opacas e conta os pixels da cor de destaque.
+  const corners = [
+    new THREE.Vector3(-1, 0.82, 1),
+    new THREE.Vector3(1, 0.82, 1),
+    new THREE.Vector3(1, 0.82, -1),
+    new THREE.Vector3(-1, 0.82, -1),
+  ];
+  let best = corners[0];
+  if (highlighted.length) {
+    const probeOn = new THREE.MeshBasicMaterial({
+      color: 0x00ff00,
+      side: THREE.DoubleSide,
+    });
+    const probeOff = new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      side: THREE.DoubleSide,
+    });
+    const saved = fills.map((o) => o.material);
+    fills.forEach((o) => (o.material = o.userData.on ? probeOn : probeOff));
+    edges.forEach((o) => (o.visible = false));
+    const pw = 320,
+      ph = Math.round(320 / aspect);
+    const target = new THREE.WebGLRenderTarget(pw, ph);
+    const px = new Uint8Array(pw * ph * 4);
+    let bestCount = -1;
+    for (const dir of corners) {
+      aim(dir, aspect);
+      gl.setRenderTarget(target);
+      gl.setClearColor(0x000000, 1);
+      gl.clear();
+      gl.render(scene, camera);
+      gl.readRenderTargetPixels(target, 0, 0, pw, ph, px);
+      let count = 0;
+      for (let i = 0; i < px.length; i += 4)
+        if (px[i + 1] > 200 && px[i] < 80) count++;
+      if (count > bestCount) {
+        bestCount = count;
+        best = dir;
+      }
+    }
+    gl.setRenderTarget(null);
+    target.dispose();
+    probeOn.dispose();
+    probeOff.dispose();
+    fills.forEach((o, i) => (o.material = saved[i]));
+    edges.forEach((o) => (o.visible = true));
+  }
+  aim(best, aspect);
+
+  gl.setSize(width, height, false);
+  gl.setRenderTarget(null);
+  gl.render(scene, camera);
+  const url = gl.domElement.toDataURL("image/png");
+  Object.values(mats).forEach((m) => m.dispose());
+
+  // Marcadores no centro de cada peça destacada (bounds já em metros, no referencial do stand)
+  const labels = highlighted.map((p, i) => {
+    const c = new THREE.Vector3(
+      ...[0, 1, 2].map((k) => (p.bounds.min[k] + p.bounds.max[k]) / 2),
+    ).project(camera);
+    return { n: i + 1, x: (c.x + 1) / 2, y: (1 - c.y) / 2 };
+  });
+  return { url, labels, aspect };
 }

@@ -455,6 +455,172 @@ export function buildSheet({
   return { items, scale };
 }
 
+/**
+ * Página de vista geral: o stand inteiro em isométrica, com as peças do caderno
+ * destacadas e numeradas como as folhas, e a legenda ao lado.
+ */
+export function buildOverview({ project, parts, overview, preview }) {
+  const items = [];
+  const line = (x1, y1, x2, y2, w = 0.25, color = INK) =>
+    items.push({ t: "line", x1, y1, x2, y2, w, color });
+  const text = (x, y, s, size = 2.6, o = {}) =>
+    items.push({
+      t: "text",
+      x,
+      y,
+      s: String(s),
+      size,
+      color: o.color || INK,
+      anchor: o.anchor || "start",
+      rot: 0,
+      bold: !!o.bold,
+    });
+  const ACCENT = "#0b5c46",
+    FILL = "#8fd9b8",
+    GHOST = "#eef1f4";
+  items.push({
+    t: "rect",
+    x: M,
+    y: M,
+    w: PAGE.w - 2 * M,
+    h: PAGE.h - 2 * M,
+    wd: 0.5,
+    color: INK,
+  });
+  const colX = PAGE.w - M - SIDE_W;
+  line(colX, M, colX, PAGE.h - M, 0.4);
+  const area = { x: M + 4, y: M + 10, w: colX - M - 8, h: PAGE.h - 2 * M - 16 };
+  text(M + 3, M + 5, "VISTA GERAL DO STAND (ISOMÉTRICA, SEM ESCALA)", 2.4, {
+    bold: true,
+  });
+  if (overview) {
+    const w = Math.min(area.w, area.h * overview.aspect),
+      h = w / overview.aspect;
+    const ox = area.x + (area.w - w) / 2,
+      oy = area.y + (area.h - h) / 2;
+    items.push({ t: "image", x: ox, y: oy, w, h, src: overview.url });
+    // Marcadores numerados: mesmo número da folha da peça
+    for (const { n, x, y } of overview.labels) {
+      const cx = ox + x * w,
+        cy = oy + y * h;
+      items.push({
+        t: "circle",
+        x: cx,
+        y: cy,
+        r: 2.3,
+        fill: "#ffffff",
+        color: ACCENT,
+        w: 0.35,
+      });
+      text(cx, cy + 0.85, String(n).padStart(2, "0"), 2.1, {
+        anchor: "middle",
+        bold: true,
+        color: ACCENT,
+      });
+    }
+  } else
+    text(
+      area.x + area.w / 2,
+      area.y + area.h / 2,
+      "Vista geral indisponível neste navegador.",
+      2.4,
+      { color: SOFT, anchor: "middle" },
+    );
+
+  const sx = colX + 4,
+    sw = SIDE_W - 8;
+  let y = M + 7;
+  text(
+    sx,
+    y,
+    `DETALHAMENTO · ${project.name}`.slice(0, 48).toUpperCase(),
+    1.9,
+    { color: SOFT, bold: true },
+  );
+  y += 7;
+  text(sx, y, "Vista geral", 4, { bold: true });
+  y += 7;
+  items.push({
+    t: "box",
+    x: sx,
+    y: y - 2.6,
+    w: 3.2,
+    h: 3.2,
+    fill: FILL,
+    color: ACCENT,
+    wd: 0.25,
+  });
+  text(sx + 5, y, `Peças deste caderno (${parts.length})`, 2.3);
+  y += 5;
+  items.push({
+    t: "box",
+    x: sx,
+    y: y - 2.6,
+    w: 3.2,
+    h: 3.2,
+    fill: GHOST,
+    color: "#c4ccd4",
+    wd: 0.25,
+  });
+  text(sx + 5, y, "Demais peças do stand", 2.3);
+  y += 7;
+  text(sx, y, "PEÇAS", 2.3, { bold: true });
+  line(sx, y + 1.5, sx + sw, y + 1.5, 0.15, SOFT);
+  y += 5.5;
+  const maxRows = Math.floor((PAGE.h - M - 30 - y) / 4);
+  parts.slice(0, maxRows).forEach((p, i) => {
+    text(sx, y, String(i + 1).padStart(2, "0"), 2.1, {
+      bold: true,
+      color: ACCENT,
+    });
+    text(sx + 7, y, p.label.slice(0, 26), 2.1);
+    const [W, H, D] = p.dimensions;
+    text(sx + sw, y, `${mm(W)}×${mm(H)}×${mm(D)}`, 1.8, {
+      anchor: "end",
+      color: SOFT,
+    });
+    y += 4;
+  });
+  if (parts.length > maxRows)
+    text(
+      sx,
+      y,
+      `+ ${parts.length - maxRows} peças nas folhas seguintes.`,
+      1.9,
+      { color: SOFT },
+    );
+  const by = PAGE.h - M - 24;
+  line(colX, by, PAGE.w - M, by, 0.4);
+  text(sx, by + 6, "COTAS", 1.8, { color: SOFT, bold: true });
+  text(sx, by + 10.5, "mm (L×A×P)", 3, { bold: true });
+  text(sx + 40, by + 6, "REVISÃO", 1.8, { color: SOFT, bold: true });
+  text(
+    sx + 40,
+    by + 10.5,
+    preview ? "PRÉVIA" : `R${project.revision || 0}`,
+    3.4,
+    { bold: true, color: preview ? DIM : INK },
+  );
+  text(
+    sx,
+    by + 17,
+    `${new Date().toLocaleDateString("pt-BR")} · ${project.file?.name || ""}`.slice(
+      0,
+      58,
+    ),
+    1.7,
+    { color: SOFT },
+  );
+  text(
+    sx,
+    by + 20.5,
+    "Levantamento dimensional. Não é liberação de fabricação.",
+    1.7,
+    { color: SOFT },
+  );
+  return { items };
+}
+
 const esc = (s) =>
   s.replace(
     /[&<>"]/g,
@@ -482,6 +648,14 @@ export function sheetSvg({ items }) {
     else if (it.t === "image")
       out.push(
         `<image href="${it.src}" x="${r2(it.x)}" y="${r2(it.y)}" width="${r2(it.w)}" height="${r2(it.h)}"/>`,
+      );
+    else if (it.t === "circle")
+      out.push(
+        `<circle cx="${r2(it.x)}" cy="${r2(it.y)}" r="${it.r}" fill="${it.fill}" stroke="${it.color}" stroke-width="${it.w}"/>`,
+      );
+    else if (it.t === "box")
+      out.push(
+        `<rect x="${r2(it.x)}" y="${r2(it.y)}" width="${r2(it.w)}" height="${r2(it.h)}" fill="${it.fill}" stroke="${it.color}" stroke-width="${it.wd}"/>`,
       );
   }
   out.push("</svg>");
@@ -517,6 +691,19 @@ export function drawSheetPdf(pdf, { items }) {
       } else pdf.text(it.s, it.x, it.y, { align });
     } else if (it.t === "image")
       pdf.addImage(it.src, "PNG", it.x, it.y, it.w, it.h);
+    else if (it.t === "circle") {
+      pdf.setDrawColor(it.color);
+      pdf.setFillColor(it.fill);
+      pdf.setLineWidth(it.w);
+      pdf.setLineDashPattern([], 0);
+      pdf.circle(it.x, it.y, it.r, "FD");
+    } else if (it.t === "box") {
+      pdf.setDrawColor(it.color);
+      pdf.setFillColor(it.fill);
+      pdf.setLineWidth(it.wd);
+      pdf.setLineDashPattern([], 0);
+      pdf.rect(it.x, it.y, it.w, it.h, "FD");
+    }
   }
   pdf.setLineDashPattern([], 0);
 }
