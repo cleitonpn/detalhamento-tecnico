@@ -92,6 +92,7 @@ export function wallFaces(triangles, { minArea = 0.2, max = 8 } = {}) {
         u1: -Infinity,
         y0: Infinity,
         y1: -Infinity,
+        tris: [],
       };
       groups.set(key, g);
     }
@@ -99,6 +100,7 @@ export function wallFaces(triangles, { minArea = 0.2, max = 8 } = {}) {
     // Eixo horizontal ao longo da face
     for (const q of p) {
       const along = -nz * q[0] + nx * q[2];
+      g.tris.push(along, q[1]);
       g.u0 = Math.min(g.u0, along);
       g.u1 = Math.max(g.u1, along);
       g.y0 = Math.min(g.y0, q[1]);
@@ -130,6 +132,7 @@ export function wallFaces(triangles, { minArea = 0.2, max = 8 } = {}) {
       g.nz = -g.nz;
       g.d = -g.d;
       [g.u0, g.u1] = [-g.u1, -g.u0];
+      for (let i = 0; i < g.tris.length; i += 2) g.tris[i] = -g.tris[i];
     }
   }
   return (
@@ -140,8 +143,238 @@ export function wallFaces(triangles, { minArea = 0.2, max = 8 } = {}) {
       )
       .sort((p, q) => q.area - p.area)
       .slice(0, max)
-      .map((g, i) => ({ ...g, index: i, w: g.u1 - g.u0, h: g.y1 - g.y0 }))
+      .map(({ tris, ...g }, i) => ({
+        ...g,
+        index: i,
+        w: g.u1 - g.u0,
+        h: g.y1 - g.y0,
+        outline: faceOutline(tris, g),
+      }))
   );
+}
+
+// ---------- contorno da face ----------
+
+const PAD = 2; // células vazias em volta da face na grade
+
+// Grade da face: célula em metros e conversão para o referencial da arte
+// (x da esquerda para a direita de quem olha, y de cima para baixo)
+function faceGrid(face) {
+  const W = face.u1 - face.u0,
+    H = face.y1 - face.y0;
+  const cell = Math.max(Math.max(W, H) / 240, 0.004);
+  return {
+    cell,
+    nx: Math.ceil(W / cell) + 2 * PAD,
+    ny: Math.ceil(H / cell) + 2 * PAD,
+    W,
+    H,
+  };
+}
+
+// Pinta na grade as células cujo centro cai no triângulo (coordenadas da arte, metros)
+function fillTriangle(grid, mask, ax, ay, bx, by, cx, cy, onCell) {
+  const { cell, nx, ny } = grid;
+  const area = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
+  if (Math.abs(area) < 1e-12) return;
+  const i0 = Math.max(0, Math.floor(Math.min(ax, bx, cx) / cell) + PAD),
+    i1 = Math.min(nx - 1, Math.floor(Math.max(ax, bx, cx) / cell) + PAD),
+    j0 = Math.max(0, Math.floor(Math.min(ay, by, cy) / cell) + PAD),
+    j1 = Math.min(ny - 1, Math.floor(Math.max(ay, by, cy) / cell) + PAD);
+  const sg = area > 0 ? 1 : -1,
+    tol = -1e-9 * Math.abs(area);
+  for (let j = j0; j <= j1; j++) {
+    const py = (j - PAD + 0.5) * cell;
+    for (let i = i0; i <= i1; i++) {
+      const px = (i - PAD + 0.5) * cell;
+      const w0 = sg * ((bx - px) * (cy - py) - (by - py) * (cx - px)),
+        w1 = sg * ((cx - px) * (ay - py) - (cy - py) * (ax - px)),
+        w2 = sg * ((ax - px) * (by - py) - (ay - py) * (bx - px));
+      if (w0 >= tol && w1 >= tol && w2 >= tol) {
+        if (onCell) onCell(i, j);
+        else mask[j * nx + i] = 1;
+      }
+    }
+  }
+}
+
+// Fechamento morfológico (dilata e erode uma célula): fecha frestas entre triângulos
+function closeMask(mask, nx, ny) {
+  const step = (src, keep) => {
+    const out = new Uint8Array(src.length);
+    for (let j = 1; j < ny - 1; j++)
+      for (let i = 1; i < nx - 1; i++) {
+        const k = j * nx + i;
+        const n = [k, k - 1, k + 1, k - nx, k + nx].map((q) => src[q]);
+        out[k] = keep ? (n.every(Boolean) ? 1 : 0) : n.some(Boolean) ? 1 : 0;
+      }
+    return out;
+  };
+  return step(step(mask, false), true);
+}
+
+// Bordas entre células cheias e vazias, encadeadas em anéis fechados (cantos da grade)
+function traceRings(mask, nx, ny) {
+  const next = new Map();
+  const at = (i, j) =>
+    i >= 0 && j >= 0 && i < nx && j < ny ? mask[j * nx + i] : 0;
+  const add = (a, b) => {
+    const k = a.join(",");
+    if (!next.has(k)) next.set(k, []);
+    next.get(k).push(b);
+  };
+  for (let j = 0; j < ny; j++)
+    for (let i = 0; i < nx; i++) {
+      if (!at(i, j)) continue;
+      if (!at(i, j - 1)) add([i, j], [i + 1, j]);
+      if (!at(i + 1, j)) add([i + 1, j], [i + 1, j + 1]);
+      if (!at(i, j + 1)) add([i + 1, j + 1], [i, j + 1]);
+      if (!at(i - 1, j)) add([i, j + 1], [i, j]);
+    }
+  const rings = [];
+  for (const [start, outs] of next) {
+    while (outs.length) {
+      const ring = [start.split(",").map(Number)];
+      let cur = outs.pop();
+      while (cur && cur.join(",") !== start) {
+        ring.push(cur);
+        cur = next.get(cur.join(","))?.pop();
+      }
+      if (ring.length >= 4) rings.push(ring);
+    }
+  }
+  return rings;
+}
+
+const ringArea = (r) =>
+  r.reduce((s, p, i) => {
+    const q = r[(i + 1) % r.length];
+    return s + p[0] * q[1] - q[0] * p[1];
+  }, 0) / 2;
+
+// Douglas–Peucker num trecho aberto
+function simplify(pts, tol) {
+  if (pts.length < 3) return pts;
+  const [a, b] = [pts[0], pts[pts.length - 1]];
+  const len = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1e-12;
+  let worst = 0,
+    at = 0;
+  for (let i = 1; i < pts.length - 1; i++) {
+    const d =
+      Math.abs(
+        (b[0] - a[0]) * (a[1] - pts[i][1]) - (a[0] - pts[i][0]) * (b[1] - a[1]),
+      ) / len;
+    if (d > worst) [worst, at] = [d, i];
+  }
+  if (worst <= tol) return [a, b];
+  return [
+    ...simplify(pts.slice(0, at + 1), tol).slice(0, -1),
+    ...simplify(pts.slice(at), tol),
+  ];
+}
+
+function simplifyRing(ring, tol) {
+  // Corta o anel no ponto mais distante do primeiro e simplifica as duas metades
+  let far = 0,
+    fd = -1;
+  ring.forEach((p, i) => {
+    const d = Math.hypot(p[0] - ring[0][0], p[1] - ring[0][1]);
+    if (d > fd) [fd, far] = [d, i];
+  });
+  const out = [
+    ...simplify(ring.slice(0, far + 1), tol).slice(0, -1),
+    ...simplify([...ring.slice(far), ring[0]], tol).slice(0, -1),
+  ];
+  return out;
+}
+
+// Remove vértices repetidos e alinhados
+function tidyRing(ring, tol) {
+  let r = ring;
+  for (let changed = true; changed && r.length > 3;) {
+    changed = false;
+    for (let i = 0; i < r.length && r.length > 3; i++) {
+      const a = r[(i + r.length - 1) % r.length],
+        p = r[i],
+        b = r[(i + 1) % r.length];
+      const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
+      const d =
+        len < 1e-9
+          ? Math.hypot(p[0] - a[0], p[1] - a[1])
+          : Math.abs(
+              (b[0] - a[0]) * (a[1] - p[1]) - (a[0] - p[0]) * (b[1] - a[1]),
+            ) / len;
+      if (d <= tol || Math.hypot(p[0] - a[0], p[1] - a[1]) <= tol) {
+        r = r.filter((_, k) => k !== i);
+        changed = true;
+      }
+    }
+  }
+  return r;
+}
+
+/**
+ * Contorno real da face (testeira sextavada, painel com recorte, vão de porta…),
+ * em metros no referencial da arte: anéis de [x, y], o primeiro é o maior.
+ * Devolve null quando a face é o próprio retângulo.
+ */
+export function faceOutline(tris, face) {
+  if (!tris?.length) return null;
+  const grid = faceGrid(face);
+  const { cell, nx, ny, W, H } = grid;
+  let mask = new Uint8Array(nx * ny);
+  const verts = [];
+  for (let t = 0; t + 5 < tris.length; t += 6) {
+    const v = [0, 2, 4].map((o) => [
+      face.u1 - tris[t + o],
+      face.y1 - tris[t + o + 1],
+    ]);
+    verts.push(...v);
+    fillTriangle(grid, mask, ...v[0], ...v[1], ...v[2]);
+  }
+  mask = closeMask(mask, nx, ny);
+  const full = mask.reduce((s, v) => s + v, 0) * cell * cell;
+  if (full >= 0.985 * W * H) return null;
+  // Vértices reais da malha, para o contorno cair nas medidas exatas
+  const snap = (p) => {
+    let best = null,
+      bd = 3 * cell;
+    for (const v of verts) {
+      const d = Math.hypot(v[0] - p[0], v[1] - p[1]);
+      if (d < bd) [bd, best] = [d, v];
+    }
+    const q = best || p;
+    return [Math.min(W, Math.max(0, q[0])), Math.min(H, Math.max(0, q[1]))];
+  };
+  const rings = traceRings(mask, nx, ny)
+    .map((r) => r.map(([i, j]) => [(i - PAD) * cell, (j - PAD) * cell]))
+    .filter((r) => Math.abs(ringArea(r)) >= 0.01 * W * H)
+    .map((r) => tidyRing(simplifyRing(r, 1.5 * cell).map(snap), cell * 0.25))
+    .filter((r) => r.length >= 3)
+    .sort((p, q) => Math.abs(ringArea(q)) - Math.abs(ringArea(p)));
+  if (!rings.length) return null;
+  const round = (v) => Math.round(v * 10000) / 10000;
+  return rings.map((r) => r.map(([x, y]) => [round(x), round(y)]));
+}
+
+// Ponto dentro do contorno (regra par-ímpar: anéis internos são vãos)
+function insideRings(rings, x, y) {
+  let inside = false;
+  for (const r of rings)
+    for (let i = 0, j = r.length - 1; i < r.length; j = i++) {
+      const [xi, yi] = r[i],
+        [xj, yj] = r[j];
+      if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi)
+        inside = !inside;
+    }
+  return inside;
+}
+
+/** Área do contorno em m² (vãos descontados); sem contorno, o retângulo. */
+export function outlineArea(rings) {
+  if (!rings?.length) return null;
+  // Anéis externos giram num sentido (área positiva) e vãos no outro
+  return rings.reduce((s, r) => s + ringArea(r), 0);
 }
 
 /** Descrição curta da face para o seletor: tamanho e para onde ela olha na peça. */
@@ -171,12 +404,26 @@ export function markInward(faces, wall, parts) {
  * Face padrão para a arte: a maior face interna (a comunicação visual costuma ir
  * do lado de dentro das paredes). Sem face interna, a maior de todas.
  */
-export function defaultFace(faces, wall, parts) {
+export function defaultFace(faces, wall, parts, options = {}) {
   if (!faces.length) return -1;
   const marked =
     faces[0].inward === undefined ? markInward(faces, wall, parts) : faces;
-  const i = marked.findIndex((f) => f.inward);
-  return i >= 0 ? i : 0;
+  // Face encostada em outra peça (testeira presa por fora da parede, painel colado
+  // na estrutura) não é a face vista: perde para uma face livre.
+  const blocked = marked.map((f) => {
+    const zones = autoZones({ face: pickFace(f) }, wall, parts, options);
+    const covered = zones.reduce((s, z) => s + z.w * z.h, 0) / 10000;
+    return covered > 0.25 * (outlineArea(f.outline) ?? f.w * f.h) ? 1 : 0;
+  });
+  const order = marked
+    .map((_, i) => i)
+    .sort(
+      (a, b) =>
+        blocked[a] - blocked[b] ||
+        Number(!!marked[b].inward) - Number(!!marked[a].inward) ||
+        a - b,
+    );
+  return order[0];
 }
 
 /** Descrição curta da face para o seletor: tamanho e se é o lado interno ou externo do stand. */
@@ -191,6 +438,23 @@ export function faceLabel(face, i) {
 }
 
 /** Faces de uma peça do projeto (usa a geometria já carregada), marcadas interna/externa. */
+/** Triângulos da peça no referencial do mundo (metros), para medir interferências. */
+export function worldTriangles(part, meshMap, sourceUnit) {
+  const t = partTriangles(part, meshMap, sourceUnit);
+  const o = part.frame?.origin || part.bounds.min;
+  const ax = part.frame?.axes || [
+    [1, 0, 0],
+    [0, 1, 0],
+    [0, 0, 1],
+  ];
+  const out = new Float32Array(t.length);
+  for (let i = 0; i < t.length; i += 3)
+    for (let k = 0; k < 3; k++)
+      out[i + k] =
+        o[k] + t[i] * ax[0][k] + t[i + 1] * ax[1][k] + t[i + 2] * ax[2][k];
+  return out;
+}
+
 export function partFaces(part, meshMap, sourceUnit, parts = []) {
   const faces = wallFaces(partTriangles(part, meshMap, sourceUnit));
   return parts.length ? markInward(faces, part, parts) : faces;
@@ -228,19 +492,22 @@ const pickFace = (f) => ({
   y1: f.y1,
   w: f.w,
   h: f.h,
+  outline: f.outline || null,
 });
 
 /**
  * Interferências automáticas: peças à frente da face escolhida (TV, prateleira,
  * balcão…) viram áreas de corte, em cm, com origem no canto superior esquerdo da
- * arte, como quem olha para a face. Revestimentos finos que cobrem boa parte da
- * face (painel, chapa, logo grande) não contam.
+ * arte, como quem olha para a face. Com `trianglesOf` (peça → triângulos no mundo)
+ * mede a geometria real dentro do contorno da face; sem ela, a caixa envolvente.
+ * Não contam: revestimento fino que cobre boa parte da face (painel, chapa),
+ * superfície sem espessura (imagem, adesivo) e recorte fino vazado (logo, letras).
  */
 export function autoZones(
   art,
   wall,
   parts,
-  { reach = 0.5, minDepth = 0.03 } = {},
+  { reach = 0.5, minDepth = 0.03, trianglesOf } = {},
 ) {
   const face = art.face;
   // Artes antigas guardavam a face como texto ("front"/"back"): sem plano, só áreas manuais
@@ -248,6 +515,9 @@ export function autoZones(
   const local = frameOf(wall);
   const W = face.w,
     H = face.h;
+  const faceArea = outlineArea(face.outline) ?? W * H;
+  const grid = faceGrid(face);
+  let inFace = null; // células dentro do contorno, calculadas na primeira necessidade
   const zones = [];
   for (const q of parts) {
     if (q.id === wall.id || q.review?.kind === "ignore") continue;
@@ -272,24 +542,157 @@ export function autoZones(
     const y0 = Math.max(face.y0, Math.min(...ys)),
       y1 = Math.min(face.y1, Math.max(...ys));
     if (a1 - a0 < 0.02 || y1 - y0 < 0.02) continue;
-    const zw = a1 - a0,
-      zh = y1 - y0;
-    if (zw * zh > 0.9 * W * H) continue; // outra parede ou o piso
-    const thin = far - near < minDepth;
-    const covers = zw >= 0.9 * W || zh >= 0.9 * H || zw * zh > 0.25 * W * H;
+    // Retângulo na arte (metros, quem olha vê "along" da direita para a esquerda),
+    // profundidade e quanto do retângulo a peça ocupa de fato
+    let hit = {
+      x0: face.u1 - a1,
+      x1: face.u1 - a0,
+      y0: face.y1 - y1,
+      y1: face.y1 - y0,
+      depth: Math.min(far, reach) - near,
+      fill: 1,
+    };
+    hit.area = (hit.x1 - hit.x0) * (hit.y1 - hit.y0);
+    if (trianglesOf || face.outline) {
+      inFace ||= faceCells(face, grid);
+      hit = coverage(q, trianglesOf, { face, grid, inFace, local, reach }, hit);
+      if (!hit) continue;
+    }
+    const zw = hit.x1 - hit.x0,
+      zh = hit.y1 - hit.y0;
+    if (zw < 0.02 || zh < 0.02) continue;
+    if (hit.area > 0.9 * faceArea) continue; // outra parede ou o piso
+    if (hit.depth < 0.005) continue; // sem espessura: imagem ou adesivo aplicado
+    const thin = hit.depth < minDepth;
+    if (thin && hit.fill < 0.6) continue; // logo ou letras recortadas
+    const covers = zw >= 0.9 * W || zh >= 0.9 * H || hit.area > 0.25 * faceArea;
     if (thin && covers) continue;
-    // Quem olha para a face vê o eixo "along" da direita para a esquerda
     zones.push({
       id: `auto-${q.id}`,
       auto: true,
       label: q.label,
-      x: round1((face.u1 - a1) * 100),
-      y: round1((face.y1 - y1) * 100),
+      x: round1(hit.x0 * 100),
+      y: round1(hit.y0 * 100),
       w: round1(zw * 100),
       h: round1(zh * 100),
     });
   }
   return mergeZones(zones);
+}
+
+// Células da grade cujo centro cai na face (dentro do contorno, quando há)
+function faceCells(face, grid) {
+  const { cell, nx, ny, W, H } = grid;
+  const out = new Uint8Array(nx * ny);
+  for (let j = 0; j < ny; j++)
+    for (let i = 0; i < nx; i++) {
+      const x = (i - PAD + 0.5) * cell,
+        y = (j - PAD + 0.5) * cell;
+      if (x < 0 || y < 0 || x > W || y > H) continue;
+      if (!face.outline || insideRings(face.outline, x, y)) out[j * nx + i] = 1;
+    }
+  return out;
+}
+
+// Recorta um polígono de pontos [dist, along, y] pela faixa lo ≤ dist ≤ hi
+function clipSlab(poly, lo, hi) {
+  const cut = (pts, keep, at) => {
+    const out = [];
+    for (let i = 0; i < pts.length; i++) {
+      const p = pts[i],
+        q = pts[(i + 1) % pts.length];
+      const kp = keep(p[0]),
+        kq = keep(q[0]);
+      if (kp) out.push(p);
+      if (kp !== kq) {
+        const t = (at - p[0]) / (q[0] - p[0]);
+        out.push(p.map((v, k) => v + t * (q[k] - v)));
+      }
+    }
+    return out;
+  };
+  const a = cut(poly, (d) => d >= lo, lo);
+  return a.length < 3 ? [] : cut(a, (d) => d <= hi, hi);
+}
+
+/**
+ * Parte da peça que fica de fato diante da face: triângulos recortados pela faixa à
+ * frente dela e projetados na grade, só dentro do contorno. Sem triângulos, usa o
+ * retângulo da caixa envolvente, também limitado ao contorno.
+ */
+function coverage(q, trianglesOf, { face, grid, inFace, local, reach }, box) {
+  const { cell, nx } = grid;
+  const hit = new Uint8Array(inFace.length);
+  let dmin = Infinity,
+    dmax = -Infinity;
+  // Extremos exatos da geometria projetada (a grade só dá a medida ao centímetro)
+  const ex = [Infinity, -Infinity, Infinity, -Infinity];
+  const mark = (i, j) => {
+    const k = j * nx + i;
+    if (inFace[k]) hit[k] = 1;
+  };
+  const tris = trianglesOf?.(q);
+  if (tris?.length) {
+    for (let t = 0; t + 8 < tris.length; t += 9) {
+      const poly = [0, 3, 6].map((o) => {
+        const p = local([tris[t + o], tris[t + o + 1], tris[t + o + 2]]);
+        return [
+          face.nx * p[0] + face.nz * p[2] - face.d,
+          -face.nz * p[0] + face.nx * p[2],
+          p[1],
+        ];
+      });
+      const c = clipSlab(poly, -0.02, reach);
+      if (c.length < 3) continue;
+      const xy = c.map(([d, a, y]) => {
+        dmin = Math.min(dmin, d);
+        dmax = Math.max(dmax, d);
+        const p = [face.u1 - a, face.y1 - y];
+        ex[0] = Math.min(ex[0], p[0]);
+        ex[1] = Math.max(ex[1], p[0]);
+        ex[2] = Math.min(ex[2], p[1]);
+        ex[3] = Math.max(ex[3], p[1]);
+        return p;
+      });
+      for (let k = 1; k + 1 < xy.length; k++)
+        fillTriangle(grid, null, ...xy[0], ...xy[k], ...xy[k + 1], mark);
+    }
+  } else {
+    const { x0, x1, y0, y1 } = box;
+    fillTriangle(grid, null, x0, y0, x1, y0, x1, y1, mark);
+    fillTriangle(grid, null, x0, y0, x1, y1, x0, y1, mark);
+    dmin = 0;
+    dmax = box.depth;
+    ex.splice(0, 4, x0, x1, y0, y1);
+  }
+  let n = 0,
+    i0 = Infinity,
+    i1 = -Infinity,
+    j0 = Infinity,
+    j1 = -Infinity;
+  for (let k = 0; k < hit.length; k++) {
+    if (!hit[k]) continue;
+    n++;
+    const i = k % nx,
+      j = (k - i) / nx;
+    i0 = Math.min(i0, i);
+    i1 = Math.max(i1, i);
+    j0 = Math.min(j0, j);
+    j1 = Math.max(j1, j);
+  }
+  if (!n) return null;
+  const clampX = (v) => Math.min(face.w, Math.max(0, v)),
+    clampY = (v) => Math.min(face.h, Math.max(0, v));
+  // Medida exata da peça, limitada ao trecho que a grade achou dentro da face
+  return {
+    x0: clampX(Math.max(ex[0], (i0 - PAD - 1) * cell)),
+    x1: clampX(Math.min(ex[1], (i1 - PAD + 2) * cell)),
+    y0: clampY(Math.max(ex[2], (j0 - PAD - 1) * cell)),
+    y1: clampY(Math.min(ex[3], (j1 - PAD + 2) * cell)),
+    depth: dmax - dmin,
+    fill: n / ((i1 - i0 + 1) * (j1 - j0 + 1)),
+    area: n * cell * cell,
+  };
 }
 
 /**
@@ -325,7 +728,70 @@ export function mergeZones(zones) {
     .sort((a, b) => a.x - b.x || a.y - b.y);
 }
 
-export const artArea = (art) => (art.w * art.h) / 10000;
+/** Contorno da arte em cm (escala junto se o tamanho for editado); null = retângulo. */
+export function artOutline(art) {
+  const f = art.face;
+  if (!f?.outline?.length || !(f.w > 0) || !(f.h > 0)) return null;
+  const sx = art.w / f.w,
+    sy = art.h / f.h;
+  return f.outline.map((r) => r.map(([x, y]) => [x * sx, y * sy]));
+}
+
+export const artArea = (art) => {
+  const rings = artOutline(art);
+  return (rings ? outlineArea(rings) : art.w * art.h) / 10000;
+};
+
+// Anel deslocado para fora do material (vãos encolhem), com cantos em meia-esquadria
+function offsetRing(ring, dist) {
+  const n = ring.length;
+  const normal = (a, b) => {
+    const dx = b[0] - a[0],
+      dy = b[1] - a[1],
+      len = Math.hypot(dx, dy) || 1;
+    return [dy / len, -dx / len];
+  };
+  return ring.map((p, i) => {
+    const n1 = normal(ring[(i + n - 1) % n], p),
+      n2 = normal(p, ring[(i + 1) % n]);
+    const den = Math.max(0.25, 1 + n1[0] * n2[0] + n1[1] * n2[1]);
+    return [
+      p[0] + ((n1[0] + n2[0]) * dist) / den,
+      p[1] + ((n1[1] + n2[1]) * dist) / den,
+    ];
+  });
+}
+
+// Trechos de um segmento que ficam dentro dos anéis (regra par-ímpar)
+function clipToRings(seg, rings) {
+  const [x1, y1, x2, y2] = seg;
+  const dx = x2 - x1,
+    dy = y2 - y1;
+  const ts = [0, 1];
+  for (const r of rings)
+    for (let i = 0; i < r.length; i++) {
+      const a = r[i],
+        b = r[(i + 1) % r.length];
+      const ex = b[0] - a[0],
+        ey = b[1] - a[1];
+      const den = dx * ey - dy * ex;
+      if (Math.abs(den) < 1e-12) continue;
+      const t = ((a[0] - x1) * ey - (a[1] - y1) * ex) / den,
+        u = ((a[0] - x1) * dy - (a[1] - y1) * dx) / den;
+      if (t > 0 && t < 1 && u >= 0 && u <= 1) ts.push(t);
+    }
+  ts.sort((p, q) => p - q);
+  const out = [];
+  for (let i = 1; i < ts.length; i++) {
+    const ta = ts[i - 1],
+      tb = ts[i];
+    if (tb - ta < 1e-6) continue;
+    const tm = (ta + tb) / 2;
+    if (insideRings(rings, x1 + dx * tm, y1 + dy * tm))
+      out.push([x1 + dx * ta, y1 + dy * ta, x1 + dx * tb, y1 + dy * tb]);
+  }
+  return out;
+}
 
 // ---------- desenho ----------
 
@@ -448,8 +914,42 @@ export function buildArtSheet({ project, art, part, iso, preview }) {
     { color: SOFT },
   );
 
-  // Sangria: faixa hachurada em volta da arte
-  if (B > 0) {
+  // Contorno recortado (testeira sextavada, painel com recorte…), em mm na folha
+  const shape = artOutline({ ...art, w: W, h: H });
+  const toMm = (r) => r.map(([x, y]) => [X(x), Y(y)]);
+  const ringLines = (r, wd, color, dash) =>
+    r.forEach((p, i) => {
+      const q = r[(i + 1) % r.length];
+      line(p[0], p[1], q[0], q[1], wd, color, dash);
+    });
+  if (shape) {
+    // Retângulo envolvente (medidas totais) tracejado, e a arte no contorno real
+    rect(X(0), Y(0), W * k, H * k, 0.15, SOFT, [1, 1]);
+    if (B > 0) {
+      const inner = shape.map(toMm),
+        outer = shape.map((r) => toMm(offsetRing(r, B)));
+      const all = [...outer, ...inner];
+      const xs = outer.flat().map((p) => p[0]),
+        ys = outer.flat().map((p) => p[1]);
+      const box0 = {
+        x0: Math.min(...xs),
+        y0: Math.min(...ys),
+        x1: Math.max(...xs),
+        y1: Math.max(...ys),
+      };
+      for (const seg of hatch(box0, null, 1.6))
+        for (const piece of clipToRings(seg, all)) line(...piece, 0.12, BLEED);
+      outer.forEach((r) => ringLines(r, 0.25, BLEED, [1.2, 0.8]));
+      text(
+        (box0.x0 + box0.x1) / 2,
+        Math.min(box0.y0, Y(-B)) - 1.2,
+        `SANGRIA ${cm(B)} cm (não ocupar com informação)`,
+        1.9,
+        { color: BLEED, anchor: "middle", bold: true },
+      );
+    }
+    shape.forEach((r) => ringLines(toMm(r), 0.4, INK));
+  } else if (B > 0) {
     const outer = { x0: X(-B), y0: Y(-B), x1: X(W + B), y1: Y(H + B) };
     const hole = { x0: X(0), y0: Y(0), x1: X(W), y1: Y(H) };
     for (const s of hatch(outer, hole, 1.6)) line(...s, 0.12, BLEED);
@@ -470,7 +970,7 @@ export function buildArtSheet({ project, art, part, iso, preview }) {
       { color: BLEED, anchor: "middle", bold: true },
     );
   }
-  box(X(0), Y(0), W * k, H * k, "#ffffff", INK, 0.4);
+  if (!shape) box(X(0), Y(0), W * k, H * k, "#ffffff", INK, 0.4);
 
   // Área de segurança (centralizada)
   if (art.safeW > 0 && art.safeH > 0 && art.safeW <= W && art.safeH <= H) {
@@ -502,13 +1002,29 @@ export function buildArtSheet({ project, art, part, iso, preview }) {
     })
     .filter((z) => z.zw > 0 && z.zh > 0);
   zones.forEach((z, i) => {
-    box(X(z.zx), Y(z.zy), z.zw * k, z.zh * k, CUT_FILL, CUT, 0.3);
-    for (const s2 of hatch(
-      { x0: X(z.zx), y0: Y(z.zy), x1: X(z.zx + z.zw), y1: Y(z.zy + z.zh) },
-      null,
-      2.2,
-    ))
-      line(...s2, 0.15, CUT);
+    const zr = {
+      x0: X(z.zx),
+      y0: Y(z.zy),
+      x1: X(z.zx + z.zw),
+      y1: Y(z.zy + z.zh),
+    };
+    if (!shape) {
+      box(X(z.zx), Y(z.zy), z.zw * k, z.zh * k, CUT_FILL, CUT, 0.3);
+      for (const s2 of hatch(zr, null, 2.2)) line(...s2, 0.15, CUT);
+    } else {
+      // Só o trecho dentro da arte: a área de corte não passa do contorno
+      const mm = shape.map(toMm);
+      const edges = [
+        [zr.x0, zr.y0, zr.x1, zr.y0],
+        [zr.x1, zr.y0, zr.x1, zr.y1],
+        [zr.x1, zr.y1, zr.x0, zr.y1],
+        [zr.x0, zr.y1, zr.x0, zr.y0],
+      ];
+      for (const e of edges)
+        for (const piece of clipToRings(e, mm)) line(...piece, 0.3, CUT);
+      for (const s2 of hatch(zr, null, 2.2))
+        for (const piece of clipToRings(s2, mm)) line(...piece, 0.15, CUT);
+    }
     const cx = X(z.zx + z.zw / 2),
       cy = Y(z.zy + z.zh / 2);
     const name = `${i + 1}. ${(z.label || "Área").toUpperCase()}`.slice(0, 28);
@@ -553,10 +1069,14 @@ export function buildArtSheet({ project, art, part, iso, preview }) {
     if (out[out.length - 1] !== extent) out[out.length - 1] = extent;
     return out;
   };
-  if (zones.length) {
+  const corners = shape ? shape.flat() : [];
+  if (zones.length || corners.length) {
     const DIMC = "#1f2937";
     const xs = chain(
-      zones.flatMap((z) => [z.zx, z.zx + z.zw]),
+      [
+        ...zones.flatMap((z) => [z.zx, z.zx + z.zw]),
+        ...corners.map((p) => p[0]),
+      ],
       W,
     );
     const yLine = Y(H + B) + 5;
@@ -580,7 +1100,10 @@ export function buildArtSheet({ project, art, part, iso, preview }) {
       );
     }
     const ys = chain(
-      zones.flatMap((z) => [z.zy, z.zy + z.zh]),
+      [
+        ...zones.flatMap((z) => [z.zy, z.zy + z.zh]),
+        ...corners.map((p) => p[1]),
+      ],
       H,
     );
     const xLine = X(W + B) + 5;
@@ -659,7 +1182,24 @@ export function buildArtSheet({ project, art, part, iso, preview }) {
     bold: true,
   });
   y += 6;
-  text(sx, y, `Arte: ${cm(W)} × ${cm(H)} cm`, 2.6);
+  text(
+    sx,
+    y,
+    `Arte: ${cm(W)} × ${cm(H)} cm${shape ? " (envolvente)" : ""}`,
+    2.6,
+  );
+  if (shape) {
+    y += 4.5;
+    text(
+      sx,
+      y,
+      "Formato recortado: cortar no contorno (cotas nos vértices)",
+      2,
+      {
+        color: SOFT,
+      },
+    );
+  }
   y += 4.5;
   text(sx, y, `Com sangria: ${cm(W + 2 * B)} × ${cm(H + 2 * B)} cm`, 2.3, {
     color: SOFT,
