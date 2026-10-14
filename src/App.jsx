@@ -230,7 +230,9 @@ export default function App() {
     if (cloudMode && isCad(sourceFile?.name)) {
       // O servidor ainda só valida e guarda GLB (functions/index.js e storage.rules).
       setBusy("");
-      setError("No espaço em nuvem, envie o modelo em GLB. Arquivos DWG, DXF e ZIP abrem no espaço local.");
+      setError(
+        "No espaço em nuvem, envie o modelo em GLB. Arquivos DWG, DXF e ZIP abrem no espaço local.",
+      );
       return;
     }
     setError("");
@@ -858,7 +860,7 @@ export default function App() {
                 <p>
                   {cloudMode
                     ? "Arquivos da equipe."
-                    : "Estes projetos e seus GLBs estão neste navegador."}
+                    : "Estes projetos e seus arquivos de modelo estão neste navegador."}
                 </p>
                 {library.length ? (
                   library.map((item) => (

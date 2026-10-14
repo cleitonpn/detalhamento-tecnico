@@ -2,7 +2,8 @@ import { unzip } from "fflate";
 import { DwgSceneBuilder, guessUnit } from "./scene.js";
 
 export const CAD_PATTERN = /\.(dwg|dxf)$/i;
-export const isCadFile = (name) => CAD_PATTERN.test(name) || /\.zip$/i.test(name);
+export const isCadFile = (name) =>
+  CAD_PATTERN.test(name) || /\.zip$/i.test(name);
 
 // Projetos chegam zipados (WeTransfer): usa o maior DWG/DXF de dentro.
 async function extract(name, buffer) {
@@ -10,19 +11,32 @@ async function extract(name, buffer) {
   const files = await new Promise((resolve, reject) =>
     unzip(
       new Uint8Array(buffer),
-      { filter: (f) => CAD_PATTERN.test(f.name) && !/(^|\/)__MACOSX\//.test(f.name) },
+      {
+        filter: (f) =>
+          CAD_PATTERN.test(f.name) && !/(^|\/)__MACOSX\//.test(f.name),
+      },
       (err, out) => (err ? reject(err) : resolve(out)),
     ),
   );
-  const [entry] = Object.entries(files).sort((a, b) => b[1].length - a[1].length);
+  const [entry] = Object.entries(files).sort(
+    (a, b) => b[1].length - a[1].length,
+  );
   if (!entry) throw Error("O ZIP não contém um arquivo .dwg ou .dxf.");
   const [inner, data] = entry;
-  return { name: inner, buffer: data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) };
+  return {
+    name: inner,
+    buffer: data.buffer.slice(
+      data.byteOffset,
+      data.byteOffset + data.byteLength,
+    ),
+  };
 }
 
 function parseInWorker(buffer, isDxf) {
   return new Promise((resolve, reject) => {
-    const worker = new Worker(new URL("./worker.js", import.meta.url), { type: "module" });
+    const worker = new Worker(new URL("./worker.js", import.meta.url), {
+      type: "module",
+    });
     worker.onmessage = ({ data }) => {
       worker.terminate();
       data.ok ? resolve(data.model) : reject(Error(data.error));

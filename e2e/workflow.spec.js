@@ -55,8 +55,11 @@ test("validação humana, revisão, PDF e persistência local", async ({
     .getByRole("button", { name: "Caderno técnico", exact: false })
     .click();
   await page.locator(".drawing-item").filter({ hasText: "Pilar 1" }).click();
-  await expect(page.locator(".paper-specs")).toContainText("Metalon");
-  await expect(page.locator(".paper-specs")).not.toContainText("mm");
+  // A folha técnica traz o material no carimbo; metalon usa as medidas do modelo, sem seção/espessura do tubo
+  const sheet = page.locator(".technical-sheet");
+  await expect(sheet).toContainText("Metalon");
+  await expect(sheet).not.toContainText(/seção|espessura do tubo/i);
+  await expect(sheet).toContainText("PERSPECTIVA ISOMÉTRICA");
   await page.getByRole("button", { name: "Registrar revisão" }).click();
   await expect(
     page.getByText("Revisão 1 registrada", { exact: true }),
@@ -116,7 +119,7 @@ test("GLB real ECBR: balcão e quatro testeiras preservam as medidas", async ({
   page.on("pageerror", (e) => errors.push(e.message));
   await page.goto("/");
   await expect(
-    page.getByRole("button", { name: "Enviar arquivo .glb" }),
+    page.getByRole("button", { name: "Enviar modelo (.dwg ou .glb)" }),
   ).toBeEnabled();
   await page
     .getByLabel("Arquivo GLB", { exact: true })
