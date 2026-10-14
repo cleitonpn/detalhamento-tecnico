@@ -8,7 +8,13 @@ import {
   smoothEdges,
   silhouettes,
 } from "./techdraw.js";
-import { analyzePart, buildSheet, drawSheetPdf } from "./sheet.js";
+import {
+  analyzePart,
+  buildSheet,
+  buildOverview,
+  drawSheetPdf,
+} from "./sheet.js";
+import { overviewImage } from "./hlr.js";
 
 // Vista cotada de uma peça (usada na tela, nos testes e no PDF).
 export function buildDrawing(part, meshMap, sourceUnit, view = "front") {
@@ -67,6 +73,24 @@ export function partSheet(project, part, meshMap, index, preview) {
   });
 }
 
+let overviewCache = { key: "", value: null };
+/** Página de vista geral: stand inteiro com as peças do caderno destacadas e numeradas. */
+export function overviewSheet(project, parts, meshMap, preview) {
+  const key = `${project.sourceUnit}|${parts.map((p) => `${p.id}:${p.meshIds.length}`).join(",")}|${meshMap.size}`;
+  if (overviewCache.key !== key || overviewCache.meshMap !== meshMap)
+    overviewCache = {
+      key,
+      meshMap,
+      value: overviewImage(project, meshMap, parts, project.sourceUnit),
+    };
+  return buildOverview({
+    project,
+    parts,
+    overview: overviewCache.value,
+    preview,
+  });
+}
+
 export async function downloadPdf(
   project,
   parts,
@@ -116,6 +140,10 @@ export async function downloadPdf(
   pdf.setFontSize(8);
   pdf.text(`Origem: ${project.file.name}`, 18, 186);
   pdf.text(`SHA-256: ${project.file.hash}`, 18, 193);
+  if (parts.length) {
+    pdf.addPage();
+    drawSheetPdf(pdf, overviewSheet(project, parts, meshMap, preview));
+  }
   for (const [index, part] of parts.entries()) {
     pdf.addPage();
     drawSheetPdf(pdf, partSheet(project, part, meshMap, index, preview));

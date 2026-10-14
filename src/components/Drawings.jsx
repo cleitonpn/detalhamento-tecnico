@@ -1,7 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { FileDown, FileJson, CheckCircle2, ArrowRight } from "lucide-react";
 import { progress } from "../domain/project.js";
-import { downloadPdf, partSheet, sheetParts } from "../lib/drawings.js";
+import {
+  downloadPdf,
+  overviewSheet,
+  partSheet,
+  sheetParts,
+} from "../lib/drawings.js";
 import { sheetSvg } from "../lib/sheet.js";
 
 export function downloadJson(value, name) {
@@ -29,31 +34,33 @@ export default function Drawings({
   const p = progress(project);
   // O caderno mostra só o que a equipe validou
   const parts = useMemo(() => sheetParts(project), [project]);
-  const index = Math.max(
-    0,
-    parts.findIndex((x) => x.id === partId),
-  );
-  const part = parts[index];
+  // Abre na vista geral; uma peça removida do caderno também volta para ela
+  const index = parts.findIndex((x) => x.id === partId);
+  const part = index >= 0 ? parts[index] : null;
   const preview = !release || project.status !== "validated";
 
   useEffect(() => {
-    if (!part) {
+    if (!parts.length) {
       setSheet(null);
       return;
     }
-    // Linhas ocultas, raios e vista 3D levam alguns instantes em peças grandes
+    // Linhas ocultas, raios e vistas 3D levam alguns instantes em modelos grandes
     setSheet(null);
     const timer = setTimeout(() => {
       try {
         setSheet(
-          sheetSvg(partSheet(project, part, analysis.meshMap, index, preview)),
+          sheetSvg(
+            part
+              ? partSheet(project, part, analysis.meshMap, index, preview)
+              : overviewSheet(project, parts, analysis.meshMap, preview),
+          ),
         );
       } catch (e) {
-        onError(`Não foi possível desenhar a peça. ${e.message}`);
+        onError(`Não foi possível desenhar a folha. ${e.message}`);
       }
     }, 30);
     return () => clearTimeout(timer);
-  }, [part, index, project, analysis, preview, onError]);
+  }, [part, parts, index, project, analysis, preview, onError]);
 
   return (
     <section className="documents-screen">
@@ -62,8 +69,9 @@ export default function Drawings({
           <span className="eyebrow">Do modelo para a equipe</span>
           <h1>Caderno técnico</h1>
           <p>
-            Uma folha por peça validada: vistas na mesma escala, cotas em mm,
-            raios das partes curvas e perspectiva de apoio.
+            Vista geral do stand com as peças destacadas e uma folha por peça
+            validada: vistas na mesma escala, cotas em mm, raios das partes
+            curvas e perspectiva de apoio.
           </p>
         </div>
         <button className="button secondary" onClick={onBack}>
@@ -101,6 +109,15 @@ export default function Drawings({
       <div className="drawing-layout">
         <aside className="drawing-list">
           <h2>Peças do caderno</h2>
+          {parts.length > 0 && (
+            <button
+              className={`drawing-item ${!part ? "active" : ""}`}
+              onClick={() => setPartId(null)}
+            >
+              <span>00</span>
+              <strong>Vista geral do stand</strong>
+            </button>
+          )}
           {parts.map((p, i) => (
             <button
               key={p.id}
@@ -120,7 +137,7 @@ export default function Drawings({
           )}
         </aside>
         <div className="drawing-paper sheet-paper">
-          {!part ? (
+          {!parts.length ? (
             <p>As folhas técnicas aparecem aqui depois da validação.</p>
           ) : sheet ? (
             <div
