@@ -1371,3 +1371,22 @@ a {
     transition: none !important;
   }
 }
+
+/* Folha técnica A4 gerada por sheet.js */
+.sheet-paper {
+  padding: 12px;
+}
+.technical-sheet svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 297 / 210;
+  border: 1px solid #d5dce3;
+  border-radius: 4px;
+}
+.sheet-loading,
+.drawing-empty {
+  color: var(--text-dim, #8a96a3);
+  padding: 24px 12px;
+  line-height: 1.5;
+}

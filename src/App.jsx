@@ -43,6 +43,7 @@ import {
   hashFile,
   partitionScene,
   validateFile,
+  isCad,
 } from "./lib/model.js";
 import { loadModel, useLightweightMode } from "./lib/loader.js";
 import { demoFile } from "./lib/demo.js";
@@ -225,7 +226,7 @@ export default function App() {
       return;
     }
     const token = ++requestId.current;
-    setBusy("Lendo o GLB e organizando as peças…");
+    setBusy("Lendo o modelo e organizando as peças…");
     setError("");
     setNotice("");
     let nextScene;
@@ -240,21 +241,24 @@ export default function App() {
       const buffer = await sourceFile.arrayBuffer();
       const hash = await hashFile(sourceFile, buffer);
       if (restored && hash !== restored.file.hash)
-        throw Error("O GLB salvo não corresponde ao projeto.");
+        throw Error("O arquivo salvo não corresponde ao projeto.");
       const lightweight = useLightweightMode(sourceFile);
       setBusy(
-        lightweight
-          ? "Lendo a geometria em modo leve, sem texturas…"
-          : "Lendo o modelo e suas texturas…",
+        isCad(sourceFile.name)
+          ? "Lendo o desenho DWG e montando as peças 3D…"
+          : lightweight
+            ? "Lendo a geometria em modo leve, sem texturas…"
+            : "Lendo o modelo e suas texturas…",
       );
       nextScene = await loadModel(sourceFile, renderer, { buffer });
       setBusy("Organizando as peças e calculando as medidas…");
       const nextAnalysis = partitionScene(
         nextScene,
-        restored?.sourceUnit || "m",
+        restored?.sourceUnit || nextScene.userData.dtSourceUnit || "m",
       );
       const next = restored || {
         ...newProject(sourceFile, { ...nextAnalysis, hash }),
+        sourceUnit: nextScene.userData.dtSourceUnit || "m",
         materials,
       };
       checkProject(next);
@@ -279,7 +283,24 @@ export default function App() {
       setFocusTick(0);
       setIsolate(false);
       setXray(false);
-      if (lightweight)
+      const cad = nextScene.userData.dtCad;
+      if (cad && !restored)
+        setNotice(
+          [
+            `Desenho aberto direto do DWG, em ${nextScene.userData.dtSourceUnit}. Confira a unidade em Dados do projeto.`,
+            cad.unitMismatch &&
+              "O cabeçalho do arquivo indicava outra unidade; a escolhida segue o tamanho do desenho.",
+            cad.solidsConverted &&
+              `${cad.solidsConverted} sólido(s) do AutoCAD convertido(s) em peças 3D.`,
+            cad.solidFacesSkipped &&
+              `${cad.solidFacesSkipped} face(s) com superfície livre (spline) ficaram de fora desses sólidos; confira as peças.`,
+            cad.solids3d &&
+              `${cad.solids3d} sólido(s) do AutoCAD não puderam ser lidos (arquivo anterior ao AutoCAD 2013 ou geometria não suportada). No AutoCAD, use MESHSMOOTH neles e salve de novo.`,
+          ]
+            .filter(Boolean)
+            .join(" "),
+        );
+      else if (lightweight)
         setNotice(
           "Modelo aberto em modo leve, sem texturas, para reduzir o uso de memória. A geometria, as medidas e o GLB original foram preservados.",
         );
@@ -400,9 +421,9 @@ export default function App() {
       <input
         ref={uploadRef}
         type="file"
-        accept=".glb"
+        accept=".glb,.dwg,.dxf,.zip"
         hidden
-        aria-label="Arquivo GLB"
+        aria-label="Arquivo do modelo (GLB, DWG, DXF ou ZIP)"
         onChange={(e) => {
           const f = e.target.files[0];
           e.target.value = "";
@@ -525,7 +546,7 @@ export default function App() {
             onClick={() => uploadRef.current.click()}
           >
             <Plus size={15} />
-            Novo GLB
+            Novo modelo
           </button>
         </div>
       )}
@@ -647,7 +668,7 @@ export default function App() {
                 onClick={() => uploadRef.current.click()}
               >
                 <Upload size={19} />
-                Enviar arquivo .glb
+                Enviar modelo (.dwg ou .glb)
               </button>
               <button
                 className="text-button demo-button"
@@ -662,7 +683,9 @@ export default function App() {
               >
                 Explorar uma demonstração <ChevronRight size={16} />
               </button>
-              <small>Até {MAX_FILE_MB} MB · Arquivos GLB 2.0</small>
+              <small>
+                Até {MAX_FILE_MB} MB · DWG, DXF, ZIP do WeTransfer ou GLB 2.0
+              </small>
             </div>
           )}
           {project && (
@@ -833,7 +856,7 @@ export default function App() {
                 <p>
                   {cloudMode
                     ? "Arquivos da equipe."
-                    : "Estes projetos e seus GLBs estão neste navegador."}
+                    : "Estes projetos e seus arquivos de modelo estão neste navegador."}
                 </p>
                 {library.length ? (
                   library.map((item) => (

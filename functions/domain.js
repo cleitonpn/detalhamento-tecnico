@@ -105,6 +105,54 @@ export function confirmParts(project, ids) {
     ),
   };
 }
+// Formatos de modelo aceitos. DWG/DXF/ZIP são lidos direto pelo Detalha, sem conversão para GLB.
+export const MODEL_FORMATS = {
+  glb: { contentType: "model/gltf-binary", label: "GLB" },
+  dwg: { contentType: "image/vnd.dwg", label: "DWG" },
+  dxf: { contentType: "image/vnd.dxf", label: "DXF" },
+  zip: { contentType: "application/zip", label: "ZIP" },
+};
+export const MODEL_HEADER_BYTES = 32;
+export function modelFormat(name) {
+  const ext = /\.([a-z0-9]+)$/i.exec(String(name || ""))?.[1]?.toLowerCase();
+  if (!ext || !MODEL_FORMATS[ext])
+    throw Error("Formato de modelo não suportado. Use GLB, DWG, DXF ou ZIP.");
+  return ext;
+}
+/** Confere a assinatura do arquivo pelos primeiros bytes (Buffer ou Uint8Array). */
+export function checkModelHeader(format, header, bytes) {
+  const ascii = (a, b) => String.fromCharCode(...header.subarray(a, b));
+  const u32 = (i) =>
+    (header[i] |
+      (header[i + 1] << 8) |
+      (header[i + 2] << 16) |
+      (header[i + 3] << 24)) >>>
+    0;
+  if (format === "glb")
+    return (
+      header.length >= 12 &&
+      u32(0) === 0x46546c67 &&
+      u32(4) === 2 &&
+      u32(8) === bytes
+    );
+  if (format === "dwg")
+    return header.length >= 6 && /^AC10\d\d$/.test(ascii(0, 6));
+  if (format === "dxf") {
+    // DXF texto começa com "0 / SECTION" (ou comentário 999); DXF binário tem assinatura própria
+    const start = ascii(0, Math.min(header.length, MODEL_HEADER_BYTES)).replace(
+      /^\uFEFF/,
+      "",
+    );
+    return (
+      start.startsWith("AutoCAD Binary DXF") ||
+      /^\s*0\s*\r?\n\s*SECTION/.test(start) ||
+      /^\s*999\s*\r?\n/.test(start)
+    );
+  }
+  if (format === "zip") return header.length >= 4 && u32(0) === 0x04034b50;
+  return false;
+}
+
 export function checkProject(project) {
   if (!project || project.schemaVersion !== SCHEMA_VERSION)
     throw Error("Versão do projeto incompatível.");
@@ -112,13 +160,14 @@ export function checkProject(project) {
   if (!cleanText(project.name)) throw Error("Informe o nome do projeto.");
   if (!SCALE[project.sourceUnit]) throw Error("Unidade do modelo inválida.");
   if (!/^[a-f0-9]{64}$/.test(project.file?.hash || ""))
-    throw Error("Identidade do GLB ausente.");
+    throw Error("Identidade do modelo ausente.");
+  modelFormat(project.file.name);
   if (
     !Number.isSafeInteger(project.file.bytes) ||
     project.file.bytes <= 0 ||
     project.file.bytes > MAX_FILE_BYTES
   )
-    throw Error(`GLB acima do limite de ${MAX_FILE_MB} MB ou inválido.`);
+    throw Error(`Modelo acima do limite de ${MAX_FILE_MB} MB ou inválido.`);
   if (
     !Array.isArray(project.parts) ||
     !project.parts.length ||

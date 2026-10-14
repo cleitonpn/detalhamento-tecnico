@@ -1,5 +1,16 @@
 # Requisito: peças curvas no detalhamento
 
+## Estado atual (outubro/2026)
+
+Implementado em `src/lib/techdraw.js` e `src/lib/sheet.js`:
+
+- Contornos por vista: arestas vivas (acima de 35°) mais silhuetas das superfícies curvas, com linhas ocultas calculadas na GPU.
+- Detecção de arcos nas vistas frontal, superior e lateral: trechos com segmentos de mesmo tamanho e mesmo giro, ajuste de círculo (Kåsa) e desvio máximo de 0,5 mm ou 0,5% do raio. O arco é estendido até os pontos de tangência, inclusive através de nós onde chegam outras arestas.
+- Curvas livres (elipses, splines) não recebem raio: o trecho que continua curvando com segmentos parecidos é descartado e a folha avisa.
+- Folha: marca de centro, chamada "R" ou "Ø" e tabela com raio, ângulo, comprimento do arco, corda, flecha, segmentos e confiança. Raios iguais na mesma vista são agrupados (ex.: "4×"). Contornos concêntricos indicam raio interno/externo e espessura.
+
+Ainda pendente: escolha manual do contorno de referência, confirmação do raio pelo operador e envio dos raios no pacote de integração.
+
 Testeiras, balcões e paredes curvas precisam de medidas de curvatura e desenhos que conservem seu contorno. **A base atual mede o envelope e projeta arestas; ainda não calcula ou valida raios.** Este documento registra o requisito e a estratégia para uma etapa própria de implementação.
 
 ## O que é possível obter do GLB

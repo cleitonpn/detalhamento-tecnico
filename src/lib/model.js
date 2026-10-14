@@ -184,7 +184,7 @@ export function partitionScene(scene, sourceUnit = "m") {
     node.children.forEach((c, i) => collect(c, `${path}/${i}`));
   }
   collect(scene);
-  if (!meshMap.size) throw Error("O GLB não contém malhas para detalhar.");
+  if (!meshMap.size) throw Error("O modelo não contém malhas para detalhar.");
   let root = scene;
   const hasMesh = (node) => {
     let found = false;
@@ -247,11 +247,14 @@ export function partitionScene(scene, sourceUnit = "m") {
   };
 }
 
+export const isCad = (name) => /\.(dwg|dxf|zip)$/i.test(name || "");
 export async function validateFile(file) {
-  if (!file || !/\.glb$/i.test(file.name))
-    throw Error("Escolha um arquivo .glb.");
+  if (!file || !/\.(glb|dwg|dxf|zip)$/i.test(file.name))
+    throw Error("Escolha um arquivo .glb, .dwg, .dxf ou .zip.");
   if (!file.size || file.size > MAX_FILE_BYTES)
-    throw Error(`Envie um GLB de até ${MAX_FILE_MB} MB.`);
+    throw Error(`Envie um arquivo de até ${MAX_FILE_MB} MB.`);
+  // DWG/DXF/ZIP são conferidos pelo leitor, que explica o problema se o arquivo não abrir.
+  if (isCad(file.name)) return file;
   const header = await file.slice(0, 12).arrayBuffer(),
     view = new DataView(header);
   if (

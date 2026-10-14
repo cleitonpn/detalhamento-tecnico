@@ -1,7 +1,8 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { FileDown, FileJson, CheckCircle2, ArrowRight } from "lucide-react";
-import { materialLabel, progress } from "../domain/project.js";
-import { buildDrawing, drawingSvg, downloadPdf } from "../lib/drawings.js";
+import { progress } from "../domain/project.js";
+import { downloadPdf, partSheet, sheetParts } from "../lib/drawings.js";
+import { sheetSvg } from "../lib/sheet.js";
 
 export function downloadJson(value, name) {
   const url = URL.createObjectURL(
@@ -23,19 +24,37 @@ export default function Drawings({
   onError,
 }) {
   const [partId, setPartId] = useState(null),
-    [exporting, setExporting] = useState(false);
+    [exporting, setExporting] = useState(false),
+    [sheet, setSheet] = useState(null);
   const p = progress(project);
-  const parts = project.parts.filter((p) => p.review.kind !== "ignore");
-  const part = parts.find((p) => p.id === partId) || parts[0];
-  const drawings = useMemo(
-    () =>
-      part
-        ? ["front", "top", "side"].map((v) =>
-            buildDrawing(part, analysis.meshMap, project.sourceUnit, v),
-          )
-        : [],
-    [part, analysis, project.sourceUnit],
+  // O caderno mostra só o que a equipe validou
+  const parts = useMemo(() => sheetParts(project), [project]);
+  const index = Math.max(
+    0,
+    parts.findIndex((x) => x.id === partId),
   );
+  const part = parts[index];
+  const preview = !release || project.status !== "validated";
+
+  useEffect(() => {
+    if (!part) {
+      setSheet(null);
+      return;
+    }
+    // Linhas ocultas, raios e vista 3D levam alguns instantes em peças grandes
+    setSheet(null);
+    const timer = setTimeout(() => {
+      try {
+        setSheet(
+          sheetSvg(partSheet(project, part, analysis.meshMap, index, preview)),
+        );
+      } catch (e) {
+        onError(`Não foi possível desenhar a peça. ${e.message}`);
+      }
+    }, 30);
+    return () => clearTimeout(timer);
+  }, [part, index, project, analysis, preview, onError]);
+
   return (
     <section className="documents-screen">
       <div className="section-title">
@@ -43,7 +62,8 @@ export default function Drawings({
           <span className="eyebrow">Do modelo para a equipe</span>
           <h1>Caderno técnico</h1>
           <p>
-            Vistas e medidas das peças, com a classificação conferida por você.
+            Uma folha por peça validada: vistas na mesma escala, cotas em mm,
+            raios das partes curvas e perspectiva de apoio.
           </p>
         </div>
         <button className="button secondary" onClick={onBack}>
@@ -54,16 +74,20 @@ export default function Drawings({
         <CheckCircle2 size={22} />
         <div>
           <strong>
-            {p.pending
-              ? `${p.pending} peças aguardam validação`
-              : release
-                ? `Revisão ${release.revision} registrada`
-                : "Levantamento pronto para registrar"}
+            {release
+              ? `Revisão ${release.revision} registrada`
+              : parts.length
+                ? `${parts.length} ${parts.length === 1 ? "peça validada" : "peças validadas"} no caderno`
+                : "Nenhuma peça validada ainda"}
           </strong>
           <p>
-            {p.confirmed} de {p.total} peças validadas. Este caderno cobre o
-            levantamento dimensional; os detalhes internos de fabricação serão
-            uma próxima etapa.
+            Peças sem validação não aparecem aqui. Selecione e valide na etapa
+            anterior as peças que quer detalhar.{" "}
+            {release
+              ? `${parts.length} peças validadas no caderno.`
+              : p.pending
+                ? `Para registrar uma revisão oficial, todas as ${p.total} peças precisam estar validadas ou ignoradas (faltam ${p.pending}).`
+                : "Tudo validado: a revisão já pode ser registrada."}
           </p>
         </div>
         <button
@@ -85,73 +109,36 @@ export default function Drawings({
             >
               <span>{String(i + 1).padStart(2, "0")}</span>
               <strong>{p.label}</strong>
-              {p.review.confirmed && <CheckCircle2 size={15} />}
+              <CheckCircle2 size={15} />
             </button>
           ))}
+          {!parts.length && (
+            <p className="drawing-empty">
+              Volte à validação, selecione as peças que quer detalhar, confira
+              tipo e medidas e clique em validar.
+            </p>
+          )}
         </aside>
-        <div className="drawing-paper">
-          {part ? (
-            <>
-              <div className="paper-heading">
-                <div>
-                  <span>DETALHAMENTO · {project.name}</span>
-                  <h2>{part.label}</h2>
-                </div>
-                <span>{release ? `REV. ${release.revision}` : "PRÉVIA"}</span>
-              </div>
-              <div className="orthographic-views">
-                {drawings.map((drawing, i) => (
-                  <div key={drawing.view}>
-                    <h3>
-                      {["Vista frontal", "Vista superior", "Vista lateral"][i]}
-                    </h3>
-                    <div
-                      className="technical-svg"
-                      dangerouslySetInnerHTML={{
-                        __html: drawingSvg(part, drawing),
-                      }}
-                    />
-                    {drawing.simplified && (
-                      <small>
-                        Envelope simplificado pela complexidade da malha.
-                      </small>
-                    )}
-                  </div>
-                ))}
-              </div>
-              <div className="paper-specs">
-                <p>
-                  <strong>Material:</strong>{" "}
-                  {materialLabel(
-                    project.materials.find(
-                      (m) => m.id === part.review.materialId,
-                    ),
-                  ) || "A informar"}
-                </p>
-                <p>
-                  <strong>Revestimento:</strong>{" "}
-                  {materialLabel(
-                    project.materials.find(
-                      (m) => m.id === part.review.finishId,
-                    ),
-                  ) || "Não informado"}
-                </p>
-                <p>{part.review.notes || "Sem observações de construção."}</p>
-              </div>
-              <footer>
-                Medidas em metros · Conferir especificações internas antes de
-                fabricar.
-              </footer>
-            </>
+        <div className="drawing-paper sheet-paper">
+          {!part ? (
+            <p>As folhas técnicas aparecem aqui depois da validação.</p>
+          ) : sheet ? (
+            <div
+              className="technical-sheet"
+              dangerouslySetInnerHTML={{ __html: sheet }}
+            />
           ) : (
-            <p>Nenhuma peça incluída no caderno.</p>
+            <p className="sheet-loading">
+              Desenhando vistas, linhas ocultas e raios…
+            </p>
           )}
         </div>
       </div>
       <div className="document-export">
         <p>
-          Registre a revisão para exportar os documentos da configuração
-          validada.
+          {preview
+            ? "Sem revisão registrada, o PDF sai marcado como PRÉVIA."
+            : "PDF da revisão registrada."}
         </p>
         <button
           className="button secondary"
@@ -165,13 +152,11 @@ export default function Drawings({
         </button>
         <button
           className="button primary"
-          disabled={
-            !release || p.pending || project.status !== "validated" || exporting
-          }
+          disabled={!parts.length || exporting}
           onClick={async () => {
             setExporting(true);
             try {
-              await downloadPdf(project, parts, analysis.meshMap);
+              await downloadPdf(project, parts, analysis.meshMap, { preview });
             } catch (e) {
               onError(e.message);
             } finally {
@@ -180,7 +165,11 @@ export default function Drawings({
           }}
         >
           <FileDown size={16} />
-          {exporting ? "Gerando PDF…" : "Baixar caderno PDF"}
+          {exporting
+            ? "Gerando PDF…"
+            : preview
+              ? "Baixar prévia em PDF"
+              : "Baixar caderno PDF"}
         </button>
       </div>
     </section>

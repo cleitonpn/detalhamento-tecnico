@@ -10,6 +10,10 @@ import {
   createRelease,
   MAX_FILE_BYTES,
   MAX_FILE_MB,
+  MODEL_FORMATS,
+  MODEL_HEADER_BYTES,
+  checkModelHeader,
+  modelFormat,
   progress,
 } from "./domain.js";
 import {
@@ -121,15 +125,16 @@ export const dt_initializeWorkspace = endpoint(async (req) => {
 export const dt_reserveModel = endpoint(async (req) => {
   const { id } = await authorize(req, true),
     { projectId, file } = req.data;
-  const path = modelPath(id, projectId, file?.hash);
+  const format = modelFormat(file?.name);
+  const path = modelPath(id, projectId, file?.hash, format);
   if (
     !Number.isSafeInteger(file?.bytes) ||
     file.bytes <= 0 ||
     file.bytes > MAX_FILE_BYTES
   )
-    throw Error(`Envie um GLB de até ${MAX_FILE_MB} MB.`);
+    throw Error(`Envie um modelo de até ${MAX_FILE_MB} MB.`);
   const reservation = db.doc(
-    `dt_workspaces/${id}/uploads/${projectId}_${file.hash}.glb`,
+    `dt_workspaces/${id}/uploads/${projectId}_${file.hash}.${format}`,
   );
   await reservation.set(
     {
@@ -143,46 +148,46 @@ export const dt_reserveModel = endpoint(async (req) => {
     { merge: true },
   );
   const [exists] = await bucket().file(path).exists();
-  return { path, exists };
+  return { path, exists, contentType: MODEL_FORMATS[format].contentType };
 });
 
-async function verifyGlb(workspaceId, project, uid) {
-  const path = modelPath(workspaceId, project.id, project.file.hash);
+async function verifyModel(workspaceId, project, uid) {
+  const format = modelFormat(project.file.name);
+  const path = modelPath(workspaceId, project.id, project.file.hash, format);
   const uploadRef = db.doc(
-    `dt_workspaces/${workspaceId}/uploads/${project.id}_${project.file.hash}.glb`,
+    `dt_workspaces/${workspaceId}/uploads/${project.id}_${project.file.hash}.${format}`,
   );
   const reservation = (await uploadRef.get()).data();
   if (!reservation || reservation.uid !== uid)
-    throw Error("Reserve e envie o GLB antes de salvar.");
+    throw Error("Reserve e envie o modelo antes de salvar.");
   if (
     reservation.verified === true &&
     reservation.verifiedBytes === project.file.bytes
   )
     return path;
   if (reservation.expiresAtMs < Date.now())
-    throw Error("A reserva do GLB expirou. Envie o arquivo novamente.");
+    throw Error("A reserva do modelo expirou. Envie o arquivo novamente.");
   const file = bucket().file(path),
     [metadata] = await file.getMetadata();
   if (
     Number(metadata.size) !== project.file.bytes ||
-    metadata.contentType !== "model/gltf-binary"
+    metadata.contentType !== MODEL_FORMATS[format].contentType
   )
     throw Error("O arquivo enviado não corresponde ao projeto.");
   const hash = createHash("sha256");
   let header = Buffer.alloc(0);
   for await (const chunk of file.createReadStream()) {
     hash.update(chunk);
-    if (header.length < 12)
-      header = Buffer.concat([header, chunk]).subarray(0, 12);
+    if (header.length < MODEL_HEADER_BYTES)
+      header = Buffer.concat([header, chunk]).subarray(0, MODEL_HEADER_BYTES);
   }
   if (
-    header.length < 12 ||
-    header.readUInt32LE(0) !== 0x46546c67 ||
-    header.readUInt32LE(4) !== 2 ||
-    header.readUInt32LE(8) !== project.file.bytes ||
+    !checkModelHeader(format, header, project.file.bytes) ||
     hash.digest("hex") !== project.file.hash
   )
-    throw Error("Identidade ou formato do GLB inválido.");
+    throw Error(
+      `Identidade ou formato do ${MODEL_FORMATS[format].label} inválido.`,
+    );
   await uploadRef.update({ verified: true, verifiedBytes: project.file.bytes });
   return path;
 }
@@ -190,7 +195,7 @@ async function verifyGlb(workspaceId, project, uid) {
 export const dt_saveProject = endpoint(async (req) => {
   const { id } = await authorize(req, true);
   const input = checkProject(req.data.project);
-  const path = await verifyGlb(id, input, req.auth.uid);
+  const path = await verifyModel(id, input, req.auth.uid);
   let saved;
   await db.runTransaction(async (tx) => {
     await authorizeTransaction(tx, req, true);
@@ -272,7 +277,13 @@ export const dt_publishRevision = endpoint(async (req) => {
     const { modelPath: path, ...project } = snapshot.data();
     checkVersion(req.data.expectedVersion, project.version);
     release = createRelease(project, (project.revision || 0) + 1);
-    release.artifacts = [{ type: "glb", path, fileHash: project.file.hash }];
+    release.artifacts = [
+      {
+        type: modelFormat(project.file.name),
+        path,
+        fileHash: project.file.hash,
+      },
+    ];
     release.validatedBy = req.auth.uid;
     version = project.version + 1;
     tx.create(

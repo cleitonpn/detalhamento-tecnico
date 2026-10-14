@@ -57,7 +57,8 @@ export const localRepository = {
     const blob = await request("models", "readonly", (s) =>
       s.get(project.file.hash),
     );
-    if (!blob) throw Error("O GLB deste projeto não está disponível.");
+    if (!blob)
+      throw Error("O arquivo do modelo deste projeto não está disponível.");
     const release =
       project.status === "validated" && project.revision > 0
         ? await request("releases", "readonly", (s) =>
