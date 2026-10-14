@@ -4,6 +4,8 @@
 import { Dwg_File_Type } from "@mlightcad/libredwg-web";
 import { ShapeUtils, Vector2 } from "three";
 import { ocsAxes, ocs } from "./geom.js";
+import { extractAcisSolids } from "./acis/extract.js";
+import { tessellateSab } from "./acis/brep.js";
 
 const T = {
   PFACE: 29,
@@ -88,6 +90,16 @@ export function parseDwg(lib, input, isDxf = false) {
   }
 
   // 2) Entidades que o wrapper ignora: MESH, polyface, malha MxN, sólidos ACIS
+  // Sólidos ACIS (DWG 2013+): leitor próprio da seção AcDs, sem depender da libredwg
+  let acis = { solids: new Map(), supported: false };
+  if (!isDxf && input instanceof ArrayBuffer)
+    try {
+      acis = extractAcisSolids(new Uint8Array(input));
+    } catch (err) {
+      stats.skipped["leitura dos sólidos"] = 1;
+    }
+  stats.solidsConverted = 0;
+  stats.solidFacesSkipped = 0;
   const w = lib.wasmInstance;
   const n = w.dwg_get_num_objects(data);
   for (let i = 0; i < n; i++) {
@@ -102,25 +114,31 @@ export function parseDwg(lib, input, isDxf = false) {
       ft !== T.BODY
     )
       continue;
-    if (ft === T.SOLID3D || ft === T.BODY) {
-      stats.solids3d++;
-      continue;
-    }
-    if (ft === T.REGION) {
-      stats.skipped.REGION = (stats.skipped.REGION || 0) + 1;
-      continue;
-    }
-
     const ent = lib.dwg_object_to_entity(o);
     const tio = lib.dwg_object_to_entity_tio(o);
     const common = commonAttrs(lib, ent, layerByHandle);
+    const isAcis = ft === T.SOLID3D || ft === T.BODY || ft === T.REGION;
+    if (isAcis && !acis.solids.has(common.handle)) {
+      if (ft === T.REGION)
+        stats.skipped.REGION = (stats.skipped.REGION || 0) + 1;
+      else stats.solids3d++;
+      continue;
+    }
     let tris = null;
     try {
-      if (ft === T.MESH) tris = readSubDMesh(lib, tio);
+      if (isAcis) {
+        const r = tessellateSab(acis.solids.get(common.handle));
+        tris = r.triangles;
+        const lost = Object.values(r.skipped).reduce((s, x) => s + x, 0);
+        stats.solidFacesSkipped += lost;
+        if (tris.length) stats.solidsConverted++;
+        else stats.solids3d++;
+      } else if (ft === T.MESH) tris = readSubDMesh(lib, tio);
       else if (ft === T.PFACE) tris = readPolyface(lib, w, tio);
       else tris = readPolygonMesh(lib, w, tio);
     } catch (err) {
-      stats.skipped[`erro ${ft}`] = (stats.skipped[`erro ${ft}`] || 0) + 1;
+      if (isAcis) stats.solids3d++;
+      else stats.skipped[`erro ${ft}`] = (stats.skipped[`erro ${ft}`] || 0) + 1;
       continue;
     }
     if (!tris || tris.length === 0) continue;
@@ -133,7 +151,13 @@ export function parseDwg(lib, input, isDxf = false) {
     stats.faces += positions.length / 9;
     target.items.push({
       kind: "mesh",
-      type: ft === T.MESH ? "MESH" : ft === T.PFACE ? "POLYFACE" : "POLYMESH",
+      type: isAcis
+        ? "3DSOLID"
+        : ft === T.MESH
+          ? "MESH"
+          : ft === T.PFACE
+            ? "POLYFACE"
+            : "POLYMESH",
       ...common,
       positions,
     });

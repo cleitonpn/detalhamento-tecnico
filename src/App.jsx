@@ -290,8 +290,12 @@ export default function App() {
             `Desenho aberto direto do DWG, em ${nextScene.userData.dtSourceUnit}. Confira a unidade em Dados do projeto.`,
             cad.unitMismatch &&
               "O cabeçalho do arquivo indicava outra unidade; a escolhida segue o tamanho do desenho.",
+            cad.solidsConverted &&
+              `${cad.solidsConverted} sólido(s) do AutoCAD convertido(s) em peças 3D.`,
+            cad.solidFacesSkipped &&
+              `${cad.solidFacesSkipped} face(s) com superfície livre (spline) ficaram de fora desses sólidos; confira as peças.`,
             cad.solids3d &&
-              `${cad.solids3d} sólido(s) ACIS (3DSOLID) ficaram de fora: no AutoCAD, use MESHSMOOTH e salve de novo.`,
+              `${cad.solids3d} sólido(s) do AutoCAD não puderam ser lidos (arquivo anterior ao AutoCAD 2013 ou geometria não suportada). No AutoCAD, use MESHSMOOTH neles e salve de novo.`,
           ]
             .filter(Boolean)
             .join(" "),

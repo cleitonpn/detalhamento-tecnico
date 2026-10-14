@@ -73,6 +73,8 @@ export async function loadCad(fileName, sourceBuffer) {
     declaredUnits: model.units,
     unitMismatch: mismatch,
     solids3d: model.stats.solids3d,
+    solidsConverted: model.stats.solidsConverted || 0,
+    solidFacesSkipped: model.stats.solidFacesSkipped || 0,
     faces: model.stats.faces,
   };
   return scene;

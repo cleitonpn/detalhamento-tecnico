@@ -5,7 +5,7 @@ Aplicação independente para transformar um modelo `.glb` em um levantamento or
 ## O que já funciona nesta base
 
 - Upload de GLB 2.0 de até 200 MB, incluindo Draco, Meshopt e KTX2/Basis.
-- Abertura direta de DWG, DXF e ZIP (WeTransfer), sem converter para GLB: malhas do SketchUp (MESH, polyface, 3DFACE) e blocos como peças, com a unidade detectada pelo tamanho do desenho. Sólidos ACIS (3DSOLID) não são lidos; converta-os com MESHSMOOTH no AutoCAD. No espaço em nuvem o DWG/DXF/ZIP original é enviado ao Storage, com assinatura e SHA-256 conferidos pela função `dt_saveProject`.
+- Abertura direta de DWG, DXF e ZIP (WeTransfer), sem converter para GLB: malhas do SketchUp (MESH, polyface, 3DFACE) e blocos como peças, com a unidade detectada pelo tamanho do desenho. Sólidos do AutoCAD (3DSOLID, BODY, REGION) de arquivos 2013+ são lidos por um leitor próprio do formato ACIS (`src/lib/dwg/acis`): faces planas, cilíndricas, cônicas, esféricas e toroidais. Faces de superfície livre (spline) e sólidos de arquivos anteriores ao AutoCAD 2013 ainda pedem MESHSMOOTH no AutoCAD. No espaço em nuvem o DWG/DXF/ZIP original é enviado ao Storage, com assinatura e SHA-256 conferidos pela função `dt_saveProject`.
 - Caderno técnico só com as peças validadas: folha A4 por peça com vistas frontal, superior e lateral na mesma escala normalizada, linhas ocultas tracejadas, cotas totais e parciais em mm, raios das partes curvas e perspectiva isométrica de apoio.
 - Modo leve automático acima de 50 MB: abre geometria e cores sem decodificar texturas, preservando peças, medidas e o arquivo original.
 - Organização inicial por componentes da hierarquia do arquivo. Nomes, materiais visuais e forma ajudam nas sugestões, mas **não confirmam a construção**.
