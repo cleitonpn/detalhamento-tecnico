@@ -1,6 +1,9 @@
 import { httpsCallable } from "firebase/functions";
 import { getBlob, ref, uploadBytesResumable } from "firebase/storage";
 import { functions, storage, workspaceId } from "./firebase.js";
+import { MODEL_FORMATS, modelFormat } from "../domain/project.js";
+
+const typeOf = (name) => MODEL_FORMATS[modelFormat(name)].contentType;
 
 const call = async (name, data = {}) =>
   (
@@ -20,7 +23,7 @@ export const cloudRepository = {
     });
     if (!upload.exists)
       await uploadBytesResumable(ref(storage, upload.path), file, {
-        contentType: "model/gltf-binary",
+        contentType: upload.contentType || typeOf(project.file.name),
       });
     return (
       await call("dt_saveProject", {
@@ -37,7 +40,9 @@ export const cloudRepository = {
     return {
       project,
       release,
-      file: new File([blob], project.file.name, { type: "model/gltf-binary" }),
+      file: new File([blob], project.file.name, {
+        type: typeOf(project.file.name),
+      }),
     };
   },
   async publish(project) {

@@ -17,6 +17,8 @@ before(async()=>{
     await setDoc(doc(db,'dt_workspaces/team_a/projects/project_a'),{name:'Projeto A'})
     await setDoc(doc(db,'dt_workspaces/team_a/projects/project_a/revisions/1'),{name:'Rev 1'})
     await setDoc(doc(db,`dt_workspaces/team_a/uploads/project_a_${filename}`),{uid:'alice',bytes:12,expiresAtMs:Date.now()+3600000})
+    await setDoc(doc(db,`dt_workspaces/team_a/uploads/project_a_${hash}.dwg`),{uid:'alice',bytes:12,expiresAtMs:Date.now()+3600000})
+    await setDoc(doc(db,`dt_workspaces/team_a/uploads/project_a_${hash}.exe`),{uid:'alice',bytes:12,expiresAtMs:Date.now()+3600000})
   })
 })
 after(async()=>{await env?.cleanup()})
@@ -40,4 +42,12 @@ test('upload reservado é imutável, exige proprietário da reserva e não atrav
   assert.equal((await assertSucceeds(getBytes(ref(viewer,path)))).byteLength,12)
   await assertFails(getBytes(ref(bob,path)))
   await assertFails(uploadBytes(ref(alice,`dt_workspaces/team_b/projects/project_a/models/${filename}`),bytes,metadata))
+})
+
+test('DWG reservado aceita só o tipo de conteúdo do DWG; extensões fora da lista são recusadas',async()=>{
+  const alice=env.authenticatedContext('alice').storage(),bytes=new Uint8Array(12)
+  const dwg=`dt_workspaces/team_a/projects/project_a/models/${hash}.dwg`
+  await assertFails(uploadBytes(ref(alice,dwg),bytes,{contentType:'model/gltf-binary'}))
+  await assertSucceeds(uploadBytes(ref(alice,dwg),bytes,{contentType:'image/vnd.dwg'}))
+  await assertFails(uploadBytes(ref(alice,`dt_workspaces/team_a/projects/project_a/models/${hash}.exe`),bytes,{contentType:'application/octet-stream'}))
 })

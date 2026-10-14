@@ -60,3 +60,31 @@ test("não sobrescreve outra sessão e não aceita expositor na integração Stu
   );
   assert.doesNotThrow(() => assertStudioAdmin({ papel: "admin", ativo: true }));
 });
+
+test("modelos DWG, DXF e ZIP: caminho com extensão e assinatura conferida", async () => {
+  const { modelFormat, checkModelHeader } = await import("../domain.js");
+  const h = "a".repeat(64);
+  assert.equal(
+    modelPath("team", "project", h, "dwg"),
+    `dt_workspaces/team/projects/project/models/${h}.dwg`,
+  );
+  assert.throws(() => modelPath("team", "project", h, "exe"), /Formato/);
+  assert.equal(modelFormat("Stand Eden.DWG"), "dwg");
+  assert.equal(modelFormat("wetransfer.zip"), "zip");
+  assert.throws(() => modelFormat("modelo.skp"), /não suportado/);
+  const bytes = (s) => Buffer.from(s, "latin1");
+  assert.ok(checkModelHeader("dwg", bytes("AC1032\0\0\0\0\0\0"), 12));
+  assert.ok(!checkModelHeader("dwg", bytes("PK\x03\x04garbage"), 12));
+  assert.ok(
+    checkModelHeader("dxf", bytes("  0\r\nSECTION\r\n  2\r\nHEADER"), 30),
+  );
+  assert.ok(checkModelHeader("dxf", bytes("AutoCAD Binary DXF\r\n\x1a\0"), 30));
+  assert.ok(checkModelHeader("zip", bytes("PK\x03\x04\x14\0"), 6));
+  assert.ok(!checkModelHeader("zip", bytes("AC1032"), 6));
+  const glb = Buffer.alloc(12);
+  glb.writeUInt32LE(0x46546c67, 0);
+  glb.writeUInt32LE(2, 4);
+  glb.writeUInt32LE(12, 8);
+  assert.ok(checkModelHeader("glb", glb, 12));
+  assert.ok(!checkModelHeader("glb", glb, 13));
+});

@@ -130,6 +130,48 @@ test("Functions: workspace, upload verificado, concorrência, publicação e iso
   const saved = (await call("dt_saveProject", { project, expectedVersion: 0 }))
     .project;
   assert.equal(saved.version, 1);
+  // DWG direto: assinatura AC10xx, tipo de conteúdo próprio e mesma verificação de identidade
+  const dwgBytes = Buffer.concat([
+    Buffer.from("AC1032", "latin1"),
+    Buffer.alloc(26),
+  ]);
+  const dwgFile = {
+    name: "fixture.dwg",
+    bytes: dwgBytes.length,
+    hash: createHash("sha256").update(dwgBytes).digest("hex"),
+  };
+  const dwgReservation = await call("dt_reserveModel", {
+    projectId: "project_dwg",
+    file: dwgFile,
+  });
+  assert.match(dwgReservation.path, /\.dwg$/);
+  assert.equal(dwgReservation.contentType, "image/vnd.dwg");
+  await uploadBytesResumable(
+    ref(owner.storage, dwgReservation.path),
+    dwgBytes,
+    {
+      contentType: dwgReservation.contentType,
+    },
+  );
+  const dwgSaved = (
+    await call("dt_saveProject", {
+      project: {
+        ...project,
+        id: "project_dwg",
+        name: "Fixture DWG",
+        file: dwgFile,
+      },
+      expectedVersion: 0,
+    })
+  ).project;
+  assert.equal(dwgSaved.version, 1);
+  await assert.rejects(
+    call("dt_reserveModel", {
+      projectId: "project_skp",
+      file: { ...dwgFile, name: "fixture.skp" },
+    }),
+    /não suportado/,
+  );
   await assert.rejects(
     call("dt_saveProject", { project, expectedVersion: 0 }),
     /outra tela/,

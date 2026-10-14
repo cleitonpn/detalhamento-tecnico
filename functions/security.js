@@ -1,4 +1,4 @@
-import { assertId } from "./domain.js";
+import { assertId, MODEL_FORMATS } from "./domain.js";
 
 export const EDIT_ROLES = new Set(["owner", "editor"]);
 export function assertProvisioned(token) {
@@ -15,12 +15,13 @@ export function requireMember(member, write = false) {
     throw Error("Você não tem acesso a este espaço de trabalho.");
   return member;
 }
-export function modelPath(workspaceId, projectId, hash) {
+export function modelPath(workspaceId, projectId, hash, format = "glb") {
   assertId(workspaceId, "Espaço de trabalho");
   assertId(projectId, "Projeto");
   if (!/^[a-f0-9]{64}$/.test(hash))
     throw Error("Identidade do arquivo inválida.");
-  return `dt_workspaces/${workspaceId}/projects/${projectId}/models/${hash}.glb`;
+  if (!MODEL_FORMATS[format]) throw Error("Formato de modelo inválido.");
+  return `dt_workspaces/${workspaceId}/projects/${projectId}/models/${hash}.${format}`;
 }
 export function checkVersion(expected, current) {
   if (!Number.isSafeInteger(expected) || expected !== (current || 0))

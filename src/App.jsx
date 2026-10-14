@@ -227,14 +227,6 @@ export default function App() {
     }
     const token = ++requestId.current;
     setBusy("Lendo o modelo e organizando as peças…");
-    if (cloudMode && isCad(sourceFile?.name)) {
-      // O servidor ainda só valida e guarda GLB (functions/index.js e storage.rules).
-      setBusy("");
-      setError(
-        "No espaço em nuvem, envie o modelo em GLB. Arquivos DWG, DXF e ZIP abrem no espaço local.",
-      );
-      return;
-    }
     setError("");
     setNotice("");
     let nextScene;
