@@ -289,7 +289,7 @@ export function overviewImage(
   meshMap,
   highlighted,
   sourceUnit,
-  { width = 1600, height = 1200 } = {},
+  { width = 1600, height = 1200, corner = "auto" } = {},
 ) {
   const gl = renderer();
   if (!gl || !meshMap.size) return null;
@@ -388,54 +388,67 @@ export function overviewImage(
   };
   const aspect = width / height;
 
-  // Escolhe, entre os 4 cantos isométricos, o que mais mostra as peças destacadas:
-  // render rápido com as demais peças opacas e conta os pixels da cor de destaque.
+  // Cantos isométricos em sentido horário; `corner` escolhe um deles (0–3) ou "auto".
   const corners = [
     new THREE.Vector3(-1, 0.82, 1),
     new THREE.Vector3(1, 0.82, 1),
     new THREE.Vector3(1, 0.82, -1),
     new THREE.Vector3(-1, 0.82, -1),
   ];
-  let best = corners[0];
-  if (highlighted.length) {
-    const probeOn = new THREE.MeshBasicMaterial({
-      color: 0x00ff00,
-      side: THREE.DoubleSide,
-    });
-    const probeOff = new THREE.MeshBasicMaterial({
-      color: 0xffffff,
-      side: THREE.DoubleSide,
-    });
+  let chosen = Number.isInteger(corner) ? ((corner % 4) + 4) % 4 : -1;
+  if (chosen < 0) {
+    // Automático: a frente do stand é o lado de onde se vê mais peças diferentes
+    // (de costas, as paredes escondem quase tudo). Peças do caderno pesam mais.
+    // Render rápido com cada malha numa cor única; conta as que aparecem.
     const saved = fills.map((o) => o.material);
-    fills.forEach((o) => (o.material = o.userData.on ? probeOn : probeOff));
+    const probes = fills.map(
+      (o, i) =>
+        new THREE.MeshBasicMaterial({
+          // Cor em espaço linear: o alvo de render não converte, então o ID volta exato
+          color: new THREE.Color().setRGB(
+            (((i + 1) >> 16) & 255) / 255,
+            (((i + 1) >> 8) & 255) / 255,
+            ((i + 1) & 255) / 255,
+            THREE.LinearSRGBColorSpace,
+          ),
+          side: THREE.DoubleSide,
+        }),
+    );
+    fills.forEach((o, i) => (o.material = probes[i]));
     edges.forEach((o) => (o.visible = false));
-    const pw = 320,
-      ph = Math.round(320 / aspect);
+    const pw = 400,
+      ph = Math.round(400 / aspect);
     const target = new THREE.WebGLRenderTarget(pw, ph);
     const px = new Uint8Array(pw * ph * 4);
-    let bestCount = -1;
-    for (const dir of corners) {
+    let bestScore = -1;
+    corners.forEach((dir, k) => {
       aim(dir, aspect);
       gl.setRenderTarget(target);
       gl.setClearColor(0x000000, 1);
       gl.clear();
       gl.render(scene, camera);
       gl.readRenderTargetPixels(target, 0, 0, pw, ph, px);
-      let count = 0;
-      for (let i = 0; i < px.length; i += 4)
-        if (px[i + 1] > 200 && px[i] < 80) count++;
-      if (count > bestCount) {
-        bestCount = count;
-        best = dir;
+      const seen = new Map();
+      for (let i = 0; i < px.length; i += 4) {
+        const id = (px[i] << 16) | (px[i + 1] << 8) | px[i + 2];
+        if (id) seen.set(id, (seen.get(id) || 0) + 1);
       }
-    }
+      let score = 0;
+      for (const [id, n] of seen)
+        if (n >= 12 && fills[id - 1])
+          score += fills[id - 1].userData.on ? 3 : 1;
+      if (score > bestScore) {
+        bestScore = score;
+        chosen = k;
+      }
+    });
     gl.setRenderTarget(null);
     target.dispose();
-    probeOn.dispose();
-    probeOff.dispose();
+    probes.forEach((m) => m.dispose());
     fills.forEach((o, i) => (o.material = saved[i]));
     edges.forEach((o) => (o.visible = true));
   }
+  const best = corners[Math.max(0, chosen)];
   aim(best, aspect);
 
   gl.setSize(width, height, false);
@@ -451,5 +464,5 @@ export function overviewImage(
     ).project(camera);
     return { n: i + 1, x: (c.x + 1) / 2, y: (1 - c.y) / 2 };
   });
-  return { url, labels, aspect };
+  return { url, labels, aspect, corner: Math.max(0, chosen) };
 }

@@ -1421,3 +1421,11 @@ a {
   outline: 2px solid var(--brand-green);
   outline-offset: 2px;
 }
+
+/* Ferramentas da vista geral (girar o ângulo) */
+.overview-tools {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+}
