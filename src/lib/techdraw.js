@@ -517,24 +517,44 @@ function mergeArcs(arcs) {
 // ---------- cotas ----------
 
 /** Pontos para cotas parciais: posições de arestas retas longas, agrupadas. */
-export function chainStations(lines, along, extent, cross) {
+export function chainStations(
+  lines,
+  along,
+  extent,
+  cross,
+  minCross = 0.08,
+  maxInner = 10,
+) {
   const tol = Math.max(2e-3, extent * 0.004);
-  const values = [0, extent];
+  // Cada posição recebe o comprimento total de arestas que a sustenta
+  const values = [];
   for (const [x1, y1, , x2, y2] of lines) {
     const [a1, a2, c1, c2] =
       along === "x" ? [x1, x2, y1, y2] : [y1, y2, x1, x2];
-    if (Math.abs(a1 - a2) < 1e-4 && Math.abs(c2 - c1) > cross * 0.08)
-      values.push((a1 + a2) / 2);
+    const len = Math.abs(c2 - c1);
+    if (Math.abs(a1 - a2) < 1e-4 && len > cross * minCross)
+      values.push([(a1 + a2) / 2, len]);
   }
-  values.sort((a, b) => a - b);
+  values.sort((p, q) => p[0] - q[0]);
   const clusters = [];
-  for (const v of values) {
-    if (v < -tol || v > extent + tol) continue;
-    if (!clusters.length || v - clusters.at(-1) > tol) clusters.push(v);
+  for (const [v, w] of values) {
+    if (v < tol || v > extent - tol) continue;
+    const last = clusters.at(-1);
+    if (last && v - last.v <= tol) last.w += w;
+    else clusters.push({ v, w });
   }
-  clusters[0] = 0;
-  clusters[clusters.length - 1] = extent;
-  return clusters.length >= 3 && clusters.length <= 12 ? clusters : null;
+  // Mantém só as posições mais sustentadas (nas formas orgânicas, poucas) e descarta trechos < 2%
+  const strongest = clusters
+    .sort((p, q) => q.w - p.w)
+    .slice(0, maxInner)
+    .map((c) => c.v)
+    .sort((p, q) => p - q);
+  const minGap = extent * 0.02;
+  const kept = [0];
+  for (const v of strongest)
+    if (v - kept.at(-1) >= minGap && extent - v >= minGap) kept.push(v);
+  kept.push(extent);
+  return kept.length >= 3 ? kept : null;
 }
 
 export const SCALES = [

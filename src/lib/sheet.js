@@ -72,23 +72,65 @@ export function analyzePart(part, meshMap, sourceUnit) {
       hiddenOmitted: cls.hidden.length > MAX_HIDDEN,
       exactHidden: cls.exact,
       arcs: found,
-      chainX: chainStations(cls.visible, "x", w, h),
-      chainY: chainStations(cls.visible, "y", h, w),
+      raw: cls.visible,
     };
+  }
+  // Só raios que importam para quem fabrica: curva de verdade (≥ 20°, ≥ 4 segmentos),
+  // tamanho relevante para a vista e raio compatível com a peça. Dobras de estofado
+  // e quase-retas (raios enormes com ângulo pequeno) ficam de fora.
+  const relevant = (a) => {
+    const [w, h] = VIEW_DEFS[a.view].size(dims),
+      size = Math.max(w, h);
+    const deg = (Math.abs(a.sweep) * 180) / Math.PI;
+    if (a.r < 0.003 || a.segments < 4 || a.r > 2 * size) return false;
+    if (!a.full && deg < 20) return false;
+    return (a.full ? 2 * a.r : a.length) >= 0.04 * size;
+  };
+  const kept = arcs.filter(relevant);
+  const noise = arcs.length - kept.length;
+  // Forma orgânica (estofado, almofadas): muitas curvas pequenas e irregulares.
+  // Nesses casos um raio não ajuda a fabricar; a folha avisa e não cota raios.
+  const organic = (noise >= 15 && noise > 2 * kept.length) || freeCurves >= 12;
+  // Cotas parciais: em formas orgânicas só contam arestas longas (as dobras do tecido são curtas)
+  for (const v of Object.values(views)) {
+    const minCross = organic ? 0.3 : 0.08;
+    v.chainX = chainStations(
+      v.raw,
+      "x",
+      v.width,
+      v.height,
+      minCross,
+      organic ? 3 : 10,
+    );
+    v.chainY = chainStations(
+      v.raw,
+      "y",
+      v.height,
+      v.width,
+      minCross,
+      organic ? 3 : 10,
+    );
+    delete v.raw;
   }
   // Raios iguais na mesma vista (cantos boleados, pés) viram um só item: "R1 · 4×"
   const groups = new Map();
-  for (const a of arcs.filter((x) => x.r >= 0.003)) {
+  for (const a of organic ? [] : kept) {
     const key = `${a.view}|${Math.round(a.r * 1000)}|${a.full ? "o" : Math.round((Math.abs(a.sweep) * 180) / Math.PI / 5)}`;
     if (!groups.has(key)) groups.set(key, { ...a, count: 0 });
     groups.get(key).count++;
   }
-  const grouped = [...groups.values()].sort((p, q) => q.r - p.r);
+  // No máximo 8 raios por folha, os mais visíveis (maior comprimento de arco)
+  const grouped = [...groups.values()]
+    .sort(
+      (p, q) => (q.full ? 2 * q.r : q.length) - (p.full ? 2 * p.r : p.length),
+    )
+    .slice(0, 8)
+    .sort((p, q) => q.r - p.r);
   grouped.forEach((a, i) => (a.id = `R${i + 1}`));
   arcs.length = 0;
   arcs.push(...grouped);
   const iso = isometricImage(triangles, segments, dims);
-  return { views, arcs, iso, simplified, freeCurves };
+  return { views, arcs, iso, simplified, freeCurves, organic };
 }
 
 /** Monta a folha (primitivas em mm, origem no canto superior esquerdo). */
@@ -183,6 +225,7 @@ export function buildSheet({
       });
   };
 
+  const labels = []; // caixas dos textos de raio já colocados (evita sobreposição)
   for (const view of ["front", "side", "top"]) {
     const c = cells[view],
       v = views[view];
@@ -197,8 +240,18 @@ export function buildSheet({
     });
     for (const [x1, y1, x2, y2] of v.hidden)
       line(X(x1), Y(y1), X(x2), Y(y2), 0.13, HIDDEN, [1.2, 0.8]);
+    // Em formas orgânicas o detalhe do tecido sai mais leve, para o contorno e as cotas se destacarem
+    // Traços menores que 0,15 mm no papel não aparecem na impressão e só pesam o PDF
     for (const [x1, y1, x2, y2] of v.lines)
-      line(X(x1), Y(y1), X(x2), Y(y2), 0.3);
+      if (Math.hypot(x2 - x1, y2 - y1) * k >= 0.15)
+        line(
+          X(x1),
+          Y(y1),
+          X(x2),
+          Y(y2),
+          analysis.organic ? 0.15 : 0.3,
+          analysis.organic ? "#6b818d" : INK,
+        );
 
     // Cotas: parciais junto à peça, total por fora
     const bottom = oy + gh,
@@ -236,30 +289,74 @@ export function buildSheet({
       mm(v.height),
     );
 
-    // Raios: marca de centro, linha até o meio do arco e valor
+    // Raios: chamada curta junto ao arco (sem linha atravessando a folha).
+    // A marca de centro só aparece quando o centro fica perto, dentro da vista.
+    const inside = (x, y) =>
+      x >= c.x + 2 && x <= c.x + c.w - 2 && y >= c.y + 7 && y <= c.y + c.h - 2;
     for (const a of arcs.filter((x) => x.view === view)) {
       const cx = X(a.cx),
         cy = Y(a.cy);
       const mid = a.full ? a.start + Math.PI / 4 : a.start + a.sweep / 2;
       const mx = X(a.cx + a.r * Math.cos(mid)),
         my = Y(a.cy + a.r * Math.sin(mid));
-      line(cx - 1.4, cy, cx + 1.4, cy, 0.15, DIM);
-      line(cx, cy - 1.4, cx, cy + 1.4, 0.15, DIM);
-      line(cx, cy, mx, my, 0.18, DIM);
-      const ux = (mx - cx) / (Math.hypot(mx - cx, my - cy) || 1),
-        uy = (my - cy) / (Math.hypot(mx - cx, my - cy) || 1);
-      const tx = mx + ux * 2.5,
-        ty = my + uy * 2.5;
-      line(mx, my, tx, ty, 0.18, DIM);
+      const dist = Math.hypot(mx - cx, my - cy) || 1;
+      const ux = (mx - cx) / dist,
+        uy = (my - cy) / dist;
+      if (dist <= 25 && inside(cx, cy)) {
+        line(cx - 1.4, cy, cx + 1.4, cy, 0.15, DIM);
+        line(cx, cy - 1.4, cx, cy + 1.4, 0.15, DIM);
+        line(cx, cy, mx, my, 0.18, DIM);
+      } else
+        line(
+          mx - ux * Math.min(5, dist),
+          my - uy * Math.min(5, dist),
+          mx,
+          my,
+          0.18,
+          DIM,
+        );
       const many = a.count > 1 ? ` (${a.count}×)` : "";
-      const label = a.full
+      const full = a.full
         ? `${a.id} Ø${mm(a.r * 2)}${many}`
         : `${a.id} R${mm1(a.r)}${many}`;
-      text(tx + (ux >= 0 ? 0.6 : -0.6), ty + 0.8, label, 2.3, {
-        color: DIM,
-        anchor: ux >= 0 ? "start" : "end",
-        bold: true,
-      });
+      // Procura uma posição livre ao longo da chamada; sem espaço, fica só o ID (detalhes na tabela)
+      let placed = false;
+      for (const [step, label] of [
+        [2.5, full],
+        [5.5, full],
+        [8.5, full],
+        [2.5, a.id],
+      ]) {
+        const tx = mx + ux * step,
+          ty = my + uy * step;
+        const wLabel = label.length * 1.25 + 1.2;
+        const box = {
+          x0: ux >= 0 ? tx : tx - wLabel,
+          x1: ux >= 0 ? tx + wLabel : tx,
+          y0: ty - 2,
+          y1: ty + 1.4,
+        };
+        if (
+          !inside(box.x0, box.y0) ||
+          !inside(box.x1, box.y1) ||
+          labels.some(
+            (b) =>
+              b.x0 < box.x1 && b.x1 > box.x0 && b.y0 < box.y1 && b.y1 > box.y0,
+          )
+        )
+          continue;
+        labels.push(box);
+        line(mx, my, tx, ty, 0.18, DIM);
+        text(tx + (ux >= 0 ? 0.6 : -0.6), ty + 0.8, label, 2.3, {
+          color: DIM,
+          anchor: ux >= 0 ? "start" : "end",
+          bold: true,
+        });
+        placed = true;
+        break;
+      }
+      if (!placed)
+        text(mx + 0.8, my - 0.8, a.id, 1.9, { color: DIM, bold: true });
     }
     if (v.hiddenOmitted)
       text(
@@ -326,7 +423,17 @@ export function buildSheet({
   text(sx, y, "RAIOS", 2.3, { bold: true });
   line(sx, y + 1.5, sx + sw, y + 1.5, 0.15, SOFT);
   y += 5.5;
-  if (!arcs.length) {
+  if (analysis.organic) {
+    // Estofados e almofadas: dobras viram curvas pequenas e irregulares, sem raio de projeto
+    for (const s of [
+      "Forma orgânica (estofado, almofadas):",
+      "raios não cotados. Use as medidas totais,",
+      "as cotas parciais e a perspectiva.",
+    ]) {
+      text(sx, y, s, 2.1, { color: SOFT });
+      y += 4.2;
+    }
+  } else if (!arcs.length) {
     text(
       sx,
       y,
@@ -663,13 +770,23 @@ export function sheetSvg({ items }) {
 }
 
 export function drawSheetPdf(pdf, { items }) {
+  // Estilo de linha só é reenviado quando muda: peças com milhares de traços
+  // (estofados) geravam PDFs de vários MB só com comandos repetidos.
+  let style = "";
   for (const it of items) {
     if (it.t === "line") {
-      pdf.setDrawColor(it.color);
-      pdf.setLineWidth(it.w);
-      pdf.setLineDashPattern(it.dash || [], 0);
+      const next = `${it.color}|${it.w}|${it.dash || ""}`;
+      if (next !== style) {
+        pdf.setDrawColor(it.color);
+        pdf.setLineWidth(it.w);
+        pdf.setLineDashPattern(it.dash || [], 0);
+        style = next;
+      }
       pdf.line(it.x1, it.y1, it.x2, it.y2);
-    } else if (it.t === "rect") {
+      continue;
+    }
+    style = "";
+    if (it.t === "rect") {
       pdf.setDrawColor(it.color);
       pdf.setLineWidth(it.wd);
       pdf.setLineDashPattern([], 0);

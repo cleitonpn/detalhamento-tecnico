@@ -98,7 +98,12 @@ export async function downloadPdf(
   { preview = false } = {},
 ) {
   const { jsPDF } = await import("jspdf");
-  const pdf = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+  const pdf = new jsPDF({
+    orientation: "landscape",
+    unit: "mm",
+    format: "a4",
+    compress: true,
+  });
   pdf.setTextColor("#173b48");
   pdf.setFontSize(24);
   pdf.text(project.name, 18, 30);
