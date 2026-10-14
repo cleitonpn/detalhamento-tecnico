@@ -60,13 +60,14 @@ export function partAnalysis(part, meshMap, sourceUnit) {
   return analyses.get(key);
 }
 
-export function partSheet(project, part, meshMap, index, preview) {
+export function partSheet(project, part, meshMap, index, preview, unit = "cm") {
   const find = (id) => project.materials.find((m) => m.id === id);
   return buildSheet({
     project,
     part,
     index,
     preview,
+    unit,
     analysis: partAnalysis(part, meshMap, project.sourceUnit),
     material: materialLabel(find(part.review.materialId)) || "A informar",
     finish: materialLabel(find(part.review.finishId)) || "Não informado",
@@ -75,7 +76,7 @@ export function partSheet(project, part, meshMap, index, preview) {
 
 let overviewCache = { key: "", value: null };
 /** Página de vista geral: stand inteiro com as peças do caderno destacadas e numeradas. */
-export function overviewSheet(project, parts, meshMap, preview) {
+export function overviewSheet(project, parts, meshMap, preview, unit = "cm") {
   const key = `${project.sourceUnit}|${parts.map((p) => `${p.id}:${p.meshIds.length}`).join(",")}|${meshMap.size}`;
   if (overviewCache.key !== key || overviewCache.meshMap !== meshMap)
     overviewCache = {
@@ -84,6 +85,7 @@ export function overviewSheet(project, parts, meshMap, preview) {
       value: overviewImage(project, meshMap, parts, project.sourceUnit),
     };
   return buildOverview({
+    unit,
     project,
     parts,
     overview: overviewCache.value,
@@ -95,10 +97,15 @@ export async function downloadPdf(
   project,
   parts,
   meshMap,
-  { preview = false } = {},
+  { preview = false, unit = "cm" } = {},
 ) {
   const { jsPDF } = await import("jspdf");
-  const pdf = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+  const pdf = new jsPDF({
+    orientation: "landscape",
+    unit: "mm",
+    format: "a4",
+    compress: true,
+  });
   pdf.setTextColor("#173b48");
   pdf.setFontSize(24);
   pdf.text(project.name, 18, 30);
@@ -111,7 +118,7 @@ export async function downloadPdf(
     58,
   );
   pdf.text(
-    `${preview ? "PRÉVIA, sem revisão registrada" : `Revisão ${project.revision || 0}`} | ${parts.length} peças validadas | Cotas em mm`,
+    `${preview ? "PRÉVIA, sem revisão registrada" : `Revisão ${project.revision || 0}`} | ${parts.length} peças validadas | Cotas em ${unit}`,
     18,
     67,
   );
@@ -142,11 +149,11 @@ export async function downloadPdf(
   pdf.text(`SHA-256: ${project.file.hash}`, 18, 193);
   if (parts.length) {
     pdf.addPage();
-    drawSheetPdf(pdf, overviewSheet(project, parts, meshMap, preview));
+    drawSheetPdf(pdf, overviewSheet(project, parts, meshMap, preview, unit));
   }
   for (const [index, part] of parts.entries()) {
     pdf.addPage();
-    drawSheetPdf(pdf, partSheet(project, part, meshMap, index, preview));
+    drawSheetPdf(pdf, partSheet(project, part, meshMap, index, preview, unit));
   }
   pdf.save(
     `${project.name.replace(/[^p{L}p{N} _-]/gu, "").slice(0, 80)}-${preview ? "PREVIA" : `R${project.revision || 0}`}.pdf`,

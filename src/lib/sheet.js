@@ -9,8 +9,7 @@ import {
   detectArcs,
   chainStations,
   pickScale,
-  mm,
-  mm1,
+  fmtLen,
   smoothEdges,
   silhouettes,
 } from "./techdraw.js";
@@ -72,27 +71,70 @@ export function analyzePart(part, meshMap, sourceUnit) {
       hiddenOmitted: cls.hidden.length > MAX_HIDDEN,
       exactHidden: cls.exact,
       arcs: found,
-      chainX: chainStations(cls.visible, "x", w, h),
-      chainY: chainStations(cls.visible, "y", h, w),
+      raw: cls.visible,
     };
+  }
+  // Só raios que importam para quem fabrica: curva de verdade (≥ 20°, ≥ 4 segmentos),
+  // tamanho relevante para a vista e raio compatível com a peça. Dobras de estofado
+  // e quase-retas (raios enormes com ângulo pequeno) ficam de fora.
+  const relevant = (a) => {
+    const [w, h] = VIEW_DEFS[a.view].size(dims),
+      size = Math.max(w, h);
+    const deg = (Math.abs(a.sweep) * 180) / Math.PI;
+    if (a.r < 0.003 || a.segments < 4 || a.r > 2 * size) return false;
+    if (!a.full && deg < 20) return false;
+    return (a.full ? 2 * a.r : a.length) >= 0.04 * size;
+  };
+  const kept = arcs.filter(relevant);
+  const noise = arcs.length - kept.length;
+  // Forma orgânica (estofado, almofadas): muitas curvas pequenas e irregulares.
+  // Nesses casos um raio não ajuda a fabricar; a folha avisa e não cota raios.
+  const organic = (noise >= 15 && noise > 2 * kept.length) || freeCurves >= 12;
+  // Cotas parciais: em formas orgânicas só contam arestas longas (as dobras do tecido são curtas)
+  for (const v of Object.values(views)) {
+    const minCross = organic ? 0.3 : 0.08;
+    v.chainX = chainStations(
+      v.raw,
+      "x",
+      v.width,
+      v.height,
+      minCross,
+      organic ? 3 : 10,
+    );
+    v.chainY = chainStations(
+      v.raw,
+      "y",
+      v.height,
+      v.width,
+      minCross,
+      organic ? 3 : 10,
+    );
+    delete v.raw;
   }
   // Raios iguais na mesma vista (cantos boleados, pés) viram um só item: "R1 · 4×"
   const groups = new Map();
-  for (const a of arcs.filter((x) => x.r >= 0.003)) {
+  for (const a of organic ? [] : kept) {
     const key = `${a.view}|${Math.round(a.r * 1000)}|${a.full ? "o" : Math.round((Math.abs(a.sweep) * 180) / Math.PI / 5)}`;
     if (!groups.has(key)) groups.set(key, { ...a, count: 0 });
     groups.get(key).count++;
   }
-  const grouped = [...groups.values()].sort((p, q) => q.r - p.r);
+  // No máximo 8 raios por folha, os mais visíveis (maior comprimento de arco)
+  const grouped = [...groups.values()]
+    .sort(
+      (p, q) => (q.full ? 2 * q.r : q.length) - (p.full ? 2 * p.r : p.length),
+    )
+    .slice(0, 8)
+    .sort((p, q) => q.r - p.r);
   grouped.forEach((a, i) => (a.id = `R${i + 1}`));
   arcs.length = 0;
   arcs.push(...grouped);
   const iso = isometricImage(triangles, segments, dims);
-  return { views, arcs, iso, simplified, freeCurves };
+  return { views, arcs, iso, simplified, freeCurves, organic };
 }
 
 /** Monta a folha (primitivas em mm, origem no canto superior esquerdo). */
 export function buildSheet({
+  unit = "cm",
   project,
   part,
   analysis,
@@ -102,6 +144,8 @@ export function buildSheet({
   finish,
 }) {
   const items = [];
+  const L = (m) => fmtLen(m, unit),
+    L1 = (m) => fmtLen(m, unit, true);
   const line = (x1, y1, x2, y2, w = 0.25, color = INK, dash) =>
     items.push({ t: "line", x1, y1, x2, y2, w, color, dash });
   const text = (x, y, s, size = 2.6, o = {}) =>
@@ -145,7 +189,7 @@ export function buildSheet({
 
   // Ticks oblíquos nas extremidades da cota (padrão de desenho de marcenaria)
   const tick = (x, y) => line(x - 1, y + 1, x + 1, y - 1, 0.3, DIM);
-  const dimH = (xa, xb, yLine, yRef, label) => {
+  const dimH = (xa, xb, yLine, yRef, label, alt = false) => {
     if (Math.abs(xb - xa) < 0.6) return;
     line(xa, yRef, xa, yLine + (yLine > yRef ? 1.5 : -1.5), 0.13, DIM);
     line(xb, yRef, xb, yLine + (yLine > yRef ? 1.5 : -1.5), 0.13, DIM);
@@ -154,14 +198,23 @@ export function buildSheet({
     tick(xb, yLine);
     // Sem espaço entre as linhas de chamada, o texto vai para fora, à direita
     if (Math.abs(xb - xa) < label.length * 1.5 + 1)
-      text(Math.max(xa, xb) + 2, yLine + 0.8, label, 2.1, { color: DIM });
+      text(
+        alt ? Math.min(xa, xb) - 2 : Math.max(xa, xb) + 2,
+        yLine + 0.8,
+        label,
+        2.1,
+        {
+          color: DIM,
+          anchor: alt ? "end" : "start",
+        },
+      );
     else
       text((xa + xb) / 2, yLine - 0.9, label, 2.3, {
         color: DIM,
         anchor: "middle",
       });
   };
-  const dimV = (ya, yb, xLine, xRef, label) => {
+  const dimV = (ya, yb, xLine, xRef, label, alt = false) => {
     if (Math.abs(yb - ya) < 0.6) return;
     line(xRef, ya, xLine + (xLine > xRef ? 1.5 : -1.5), ya, 0.13, DIM);
     line(xRef, yb, xLine + (xLine > xRef ? 1.5 : -1.5), yb, 0.13, DIM);
@@ -171,10 +224,16 @@ export function buildSheet({
     tk(yb);
     // Sem espaço, o texto sobe acima da linha de chamada superior
     if (Math.abs(yb - ya) < label.length * 1.5 + 1)
-      text(xLine + 0.8, Math.min(ya, yb) - 2, label, 2.1, {
-        color: DIM,
-        rot: -90,
-      });
+      text(
+        xLine + 0.8,
+        alt ? Math.max(ya, yb) + 2 + label.length * 1.15 : Math.min(ya, yb) - 2,
+        label,
+        2.1,
+        {
+          color: DIM,
+          rot: -90,
+        },
+      );
     else
       text(xLine - 0.9, (ya + yb) / 2, label, 2.3, {
         color: DIM,
@@ -183,6 +242,7 @@ export function buildSheet({
       });
   };
 
+  const labels = []; // caixas dos textos de raio já colocados (evita sobreposição)
   for (const view of ["front", "side", "top"]) {
     const c = cells[view],
       v = views[view];
@@ -197,8 +257,18 @@ export function buildSheet({
     });
     for (const [x1, y1, x2, y2] of v.hidden)
       line(X(x1), Y(y1), X(x2), Y(y2), 0.13, HIDDEN, [1.2, 0.8]);
+    // Em formas orgânicas o detalhe do tecido sai mais leve, para o contorno e as cotas se destacarem
+    // Traços menores que 0,15 mm no papel não aparecem na impressão e só pesam o PDF
     for (const [x1, y1, x2, y2] of v.lines)
-      line(X(x1), Y(y1), X(x2), Y(y2), 0.3);
+      if (Math.hypot(x2 - x1, y2 - y1) * k >= 0.15)
+        line(
+          X(x1),
+          Y(y1),
+          X(x2),
+          Y(y2),
+          analysis.organic ? 0.15 : 0.3,
+          analysis.organic ? "#6b818d" : INK,
+        );
 
     // Cotas: parciais junto à peça, total por fora
     const bottom = oy + gh,
@@ -210,14 +280,15 @@ export function buildSheet({
           X(v.chainX[i]),
           bottom + 5,
           bottom + 0.8,
-          mm(v.chainX[i] - v.chainX[i - 1]),
+          L(v.chainX[i] - v.chainX[i - 1]),
+          i % 2 === 0,
         );
     dimH(
       X(0),
       X(v.width),
       bottom + (v.chainX ? 10.5 : 5.5),
       bottom + 0.8,
-      mm(v.width),
+      L(v.width),
     );
     if (v.chainY)
       for (let i = 1; i < v.chainY.length; i++)
@@ -226,40 +297,85 @@ export function buildSheet({
           Y(v.chainY[i]),
           left - 5,
           left - 0.8,
-          mm(v.chainY[i] - v.chainY[i - 1]),
+          L(v.chainY[i] - v.chainY[i - 1]),
+          i % 2 === 0,
         );
     dimV(
       Y(0),
       Y(v.height),
       left - (v.chainY ? 10.5 : 5.5),
       left - 0.8,
-      mm(v.height),
+      L(v.height),
     );
 
-    // Raios: marca de centro, linha até o meio do arco e valor
+    // Raios: chamada curta junto ao arco (sem linha atravessando a folha).
+    // A marca de centro só aparece quando o centro fica perto, dentro da vista.
+    const inside = (x, y) =>
+      x >= c.x + 2 && x <= c.x + c.w - 2 && y >= c.y + 7 && y <= c.y + c.h - 2;
     for (const a of arcs.filter((x) => x.view === view)) {
       const cx = X(a.cx),
         cy = Y(a.cy);
       const mid = a.full ? a.start + Math.PI / 4 : a.start + a.sweep / 2;
       const mx = X(a.cx + a.r * Math.cos(mid)),
         my = Y(a.cy + a.r * Math.sin(mid));
-      line(cx - 1.4, cy, cx + 1.4, cy, 0.15, DIM);
-      line(cx, cy - 1.4, cx, cy + 1.4, 0.15, DIM);
-      line(cx, cy, mx, my, 0.18, DIM);
-      const ux = (mx - cx) / (Math.hypot(mx - cx, my - cy) || 1),
-        uy = (my - cy) / (Math.hypot(mx - cx, my - cy) || 1);
-      const tx = mx + ux * 2.5,
-        ty = my + uy * 2.5;
-      line(mx, my, tx, ty, 0.18, DIM);
+      const dist = Math.hypot(mx - cx, my - cy) || 1;
+      const ux = (mx - cx) / dist,
+        uy = (my - cy) / dist;
+      if (dist <= 25 && inside(cx, cy)) {
+        line(cx - 1.4, cy, cx + 1.4, cy, 0.15, DIM);
+        line(cx, cy - 1.4, cx, cy + 1.4, 0.15, DIM);
+        line(cx, cy, mx, my, 0.18, DIM);
+      } else
+        line(
+          mx - ux * Math.min(5, dist),
+          my - uy * Math.min(5, dist),
+          mx,
+          my,
+          0.18,
+          DIM,
+        );
       const many = a.count > 1 ? ` (${a.count}×)` : "";
-      const label = a.full
-        ? `${a.id} Ø${mm(a.r * 2)}${many}`
-        : `${a.id} R${mm1(a.r)}${many}`;
-      text(tx + (ux >= 0 ? 0.6 : -0.6), ty + 0.8, label, 2.3, {
-        color: DIM,
-        anchor: ux >= 0 ? "start" : "end",
-        bold: true,
-      });
+      const full = a.full
+        ? `${a.id} Ø${L(a.r * 2)}${many}`
+        : `${a.id} R${L1(a.r)}${many}`;
+      // Procura uma posição livre ao longo da chamada; sem espaço, fica só o ID (detalhes na tabela)
+      let placed = false;
+      for (const [step, label] of [
+        [2.5, full],
+        [5.5, full],
+        [8.5, full],
+        [2.5, a.id],
+      ]) {
+        const tx = mx + ux * step,
+          ty = my + uy * step;
+        const wLabel = label.length * 1.25 + 1.2;
+        const box = {
+          x0: ux >= 0 ? tx : tx - wLabel,
+          x1: ux >= 0 ? tx + wLabel : tx,
+          y0: ty - 2,
+          y1: ty + 1.4,
+        };
+        if (
+          !inside(box.x0, box.y0) ||
+          !inside(box.x1, box.y1) ||
+          labels.some(
+            (b) =>
+              b.x0 < box.x1 && b.x1 > box.x0 && b.y0 < box.y1 && b.y1 > box.y0,
+          )
+        )
+          continue;
+        labels.push(box);
+        line(mx, my, tx, ty, 0.18, DIM);
+        text(tx + (ux >= 0 ? 0.6 : -0.6), ty + 0.8, label, 2.3, {
+          color: DIM,
+          anchor: ux >= 0 ? "start" : "end",
+          bold: true,
+        });
+        placed = true;
+        break;
+      }
+      if (!placed)
+        text(mx + 0.8, my - 0.8, a.id, 1.9, { color: DIM, bold: true });
     }
     if (v.hiddenOmitted)
       text(
@@ -321,12 +437,22 @@ export function buildSheet({
   );
   y += 6.5;
   const [W, H, D] = part.dimensions;
-  text(sx, y, `L ${mm(W)} × A ${mm(H)} × P ${mm(D)} mm`, 2.8);
+  text(sx, y, `L ${L(W)} × A ${L(H)} × P ${L(D)} ${unit}`, 2.8);
   y += 9;
   text(sx, y, "RAIOS", 2.3, { bold: true });
   line(sx, y + 1.5, sx + sw, y + 1.5, 0.15, SOFT);
   y += 5.5;
-  if (!arcs.length) {
+  if (analysis.organic) {
+    // Estofados e almofadas: dobras viram curvas pequenas e irregulares, sem raio de projeto
+    for (const s of [
+      "Forma orgânica (estofado, almofadas):",
+      "raios não cotados. Use as medidas totais,",
+      "as cotas parciais e a perspectiva.",
+    ]) {
+      text(sx, y, s, 2.1, { color: SOFT });
+      y += 4.2;
+    }
+  } else if (!arcs.length) {
     text(
       sx,
       y,
@@ -357,8 +483,8 @@ export function buildSheet({
         sx + 8,
         y,
         a.full
-          ? `Ø ${mm(2 * a.r)}`
-          : `${mm1(a.r)}${a.role ? ` ${a.role === "interno" ? "int." : "ext."}` : ""}`,
+          ? `Ø ${L(2 * a.r)}`
+          : `${L1(a.r)}${a.role ? ` ${a.role === "interno" ? "int." : "ext."}` : ""}`,
         2.2,
       );
       text(
@@ -369,7 +495,7 @@ export function buildSheet({
           : `${deg.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}°`,
         2.2,
       );
-      text(sx + 39, y, mm(a.length), 2.2);
+      text(sx + 39, y, L(a.length), 2.2);
       text(
         sx + 54,
         y,
@@ -378,10 +504,10 @@ export function buildSheet({
       );
       y += 3.6;
       const note = [
-        a.chord ? `corda ${mm(a.chord)} · flecha ${mm1(a.sagitta)}` : "",
+        a.chord ? `corda ${L(a.chord)} · flecha ${L1(a.sagitta)}` : "",
         a.count > 1 ? `${a.count} iguais` : "",
         `${a.segments} seg. · confiança ${a.confidence}`,
-        a.thickness ? `esp. ${mm1(a.thickness)}` : "",
+        a.thickness ? `esp. ${L1(a.thickness)}` : "",
       ]
         .filter(Boolean)
         .join(" · ");
@@ -426,7 +552,7 @@ export function buildSheet({
   text(sx, by + 34, "ESCALA", 1.8, { color: SOFT, bold: true });
   text(sx, by + 38.5, `1:${scale}`, 3.4, { bold: true });
   text(sx + 26, by + 34, "COTAS", 1.8, { color: SOFT, bold: true });
-  text(sx + 26, by + 38.5, "mm", 3.4, { bold: true });
+  text(sx + 26, by + 38.5, unit, 3.4, { bold: true });
   text(sx + 48, by + 34, "REVISÃO", 1.8, { color: SOFT, bold: true });
   text(
     sx + 48,
@@ -459,8 +585,15 @@ export function buildSheet({
  * Página de vista geral: o stand inteiro em isométrica, com as peças do caderno
  * destacadas e numeradas como as folhas, e a legenda ao lado.
  */
-export function buildOverview({ project, parts, overview, preview }) {
+export function buildOverview({
+  project,
+  parts,
+  overview,
+  preview,
+  unit = "cm",
+}) {
   const items = [];
+  const L = (m) => fmtLen(m, unit);
   const line = (x1, y1, x2, y2, w = 0.25, color = INK) =>
     items.push({ t: "line", x1, y1, x2, y2, w, color });
   const text = (x, y, s, size = 2.6, o = {}) =>
@@ -575,7 +708,7 @@ export function buildOverview({ project, parts, overview, preview }) {
     });
     text(sx + 7, y, p.label.slice(0, 26), 2.1);
     const [W, H, D] = p.dimensions;
-    text(sx + sw, y, `${mm(W)}×${mm(H)}×${mm(D)}`, 1.8, {
+    text(sx + sw, y, `${L(W)}×${L(H)}×${L(D)}`, 1.8, {
       anchor: "end",
       color: SOFT,
     });
@@ -592,7 +725,7 @@ export function buildOverview({ project, parts, overview, preview }) {
   const by = PAGE.h - M - 24;
   line(colX, by, PAGE.w - M, by, 0.4);
   text(sx, by + 6, "COTAS", 1.8, { color: SOFT, bold: true });
-  text(sx, by + 10.5, "mm (L×A×P)", 3, { bold: true });
+  text(sx, by + 10.5, `${unit} (L×A×P)`, 3, { bold: true });
   text(sx + 40, by + 6, "REVISÃO", 1.8, { color: SOFT, bold: true });
   text(
     sx + 40,
@@ -663,13 +796,23 @@ export function sheetSvg({ items }) {
 }
 
 export function drawSheetPdf(pdf, { items }) {
+  // Estilo de linha só é reenviado quando muda: peças com milhares de traços
+  // (estofados) geravam PDFs de vários MB só com comandos repetidos.
+  let style = "";
   for (const it of items) {
     if (it.t === "line") {
-      pdf.setDrawColor(it.color);
-      pdf.setLineWidth(it.w);
-      pdf.setLineDashPattern(it.dash || [], 0);
+      const next = `${it.color}|${it.w}|${it.dash || ""}`;
+      if (next !== style) {
+        pdf.setDrawColor(it.color);
+        pdf.setLineWidth(it.w);
+        pdf.setLineDashPattern(it.dash || [], 0);
+        style = next;
+      }
       pdf.line(it.x1, it.y1, it.x2, it.y2);
-    } else if (it.t === "rect") {
+      continue;
+    }
+    style = "";
+    if (it.t === "rect") {
       pdf.setDrawColor(it.color);
       pdf.setLineWidth(it.wd);
       pdf.setLineDashPattern([], 0);
