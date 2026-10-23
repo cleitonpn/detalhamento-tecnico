@@ -275,6 +275,31 @@ export function checkProject(project) {
     );
   return project;
 }
+// O Firestore não aceita lista dentro de lista: a orientação da peça (três eixos)
+// é gravada como nove números e volta a ser três eixos na leitura.
+export function toStoredParts(parts) {
+  return (parts || []).map((p) =>
+    Array.isArray(p.frame?.axes?.[0])
+      ? { ...p, frame: { ...p.frame, axes: p.frame.axes.flat() } }
+      : p,
+  );
+}
+export function fromStoredParts(parts) {
+  return (parts || []).map((p) =>
+    Array.isArray(p.frame?.axes) &&
+    p.frame.axes.length === 9 &&
+    !Array.isArray(p.frame.axes[0])
+      ? {
+          ...p,
+          frame: {
+            ...p.frame,
+            axes: [0, 3, 6].map((i) => p.frame.axes.slice(i, i + 3)),
+          },
+        }
+      : p,
+  );
+}
+
 export function createRelease(
   project,
   revision,

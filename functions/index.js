@@ -8,6 +8,8 @@ import {
   checkProject,
   cleanText,
   createRelease,
+  toStoredParts,
+  fromStoredParts,
   MAX_FILE_BYTES,
   MAX_FILE_MB,
   MODEL_FORMATS,
@@ -221,7 +223,11 @@ export const dt_saveProject = endpoint(async (req) => {
       updatedAt: new Date().toISOString(),
       updatedBy: req.auth.uid,
     };
-    tx.set(ref, { ...saved, modelPath: path });
+    tx.set(ref, {
+      ...saved,
+      parts: toStoredParts(saved.parts),
+      modelPath: path,
+    });
   });
   return { project: saved };
 });
@@ -231,8 +237,9 @@ export const dt_getProject = endpoint(async (req) => {
     snapshot = await projectRef(id, req.data.projectId).get();
   if (!snapshot.exists)
     throw new HttpsError("not-found", "Projeto não encontrado.");
-  const { modelPath: path, ...project } = snapshot.data();
-  const release =
+  const { modelPath: path, ...stored } = snapshot.data();
+  const project = { ...stored, parts: fromStoredParts(stored.parts) };
+  const saved =
     project.status === "validated" && project.revision > 0
       ? (
           await snapshot.ref
@@ -241,6 +248,9 @@ export const dt_getProject = endpoint(async (req) => {
             .get()
         ).data() || null
       : null;
+  const release = saved
+    ? { ...saved, parts: fromStoredParts(saved.parts) }
+    : null;
   return { project, path, release };
 });
 export const dt_listProjects = endpoint(async (req) => {
@@ -274,7 +284,8 @@ export const dt_publishRevision = endpoint(async (req) => {
       snapshot = await tx.get(ref);
     if (!snapshot.exists)
       throw new HttpsError("not-found", "Projeto não encontrado.");
-    const { modelPath: path, ...project } = snapshot.data();
+    const { modelPath: path, ...stored } = snapshot.data();
+    const project = { ...stored, parts: fromStoredParts(stored.parts) };
     checkVersion(req.data.expectedVersion, project.version);
     release = createRelease(project, (project.revision || 0) + 1);
     release.artifacts = [
@@ -288,7 +299,7 @@ export const dt_publishRevision = endpoint(async (req) => {
     version = project.version + 1;
     tx.create(
       ref.collection("revisions").doc(String(release.revision)),
-      release,
+      { ...release, parts: toStoredParts(release.parts) },
     );
     tx.update(ref, {
       status: "validated",

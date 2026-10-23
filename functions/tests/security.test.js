@@ -88,3 +88,26 @@ test("modelos DWG, DXF e ZIP: caminho com extensão e assinatura conferida", asy
   assert.ok(checkModelHeader("glb", glb, 12));
   assert.ok(!checkModelHeader("glb", glb, 13));
 });
+
+test("orientação da peça vai plana para o Firestore e volta em três eixos", async () => {
+  const { toStoredParts, fromStoredParts } = await import("../domain.js");
+  const part = {
+    id: "p1",
+    frame: {
+      origin: [1, 2, 3],
+      axes: [
+        [1, 0, 0],
+        [0, 1, 0],
+        [0, 0, -1],
+      ],
+    },
+  };
+  const [stored] = toStoredParts([part, { id: "p2" }]);
+  // Nenhuma lista dentro de lista (o Firestore recusa)
+  assert.ok(stored.frame.axes.every((v) => typeof v === "number"));
+  assert.equal(stored.frame.axes.length, 9);
+  assert.deepEqual(fromStoredParts([stored])[0], part);
+  // Projetos antigos (sem frame) e já convertidos passam intactos
+  assert.deepEqual(fromStoredParts([{ id: "p2" }]), [{ id: "p2" }]);
+  assert.deepEqual(fromStoredParts([part])[0], part);
+});
