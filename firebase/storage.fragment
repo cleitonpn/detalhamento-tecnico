@@ -7,10 +7,10 @@ function dtStorageMember(workspaceId) {
 }
 match /dt_workspaces/{workspaceId}/projects/{projectId}/models/{filename} {
   allow read: if dtStorageMember(workspaceId);
-  // Modelos GLB, DWG, DXF ou ZIP; a extensão define o único tipo de conteúdo aceito.
+  // Modelos GLB, DWG, DXF, ZIP ou SKP; a extensão define o único tipo de conteúdo aceito.
   allow create: if resource == null && dtStorageMember(workspaceId)
     && firestore.get(/databases/(default)/documents/dt_workspaces/$(workspaceId)/members/$(request.auth.uid)).data.role in ['owner','editor']
-    && filename.matches('^[a-f0-9]{64}\\.(glb|dwg|dxf|zip)$')
+    && filename.matches('^[a-f0-9]{64}\\.(glb|dwg|dxf|zip|skp)$')
     && firestore.exists(/databases/(default)/documents/dt_workspaces/$(workspaceId)/uploads/$(projectId + '_' + filename))
     && firestore.get(/databases/(default)/documents/dt_workspaces/$(workspaceId)/uploads/$(projectId + '_' + filename)).data.uid == request.auth.uid
     && firestore.get(/databases/(default)/documents/dt_workspaces/$(workspaceId)/uploads/$(projectId + '_' + filename)).data.expiresAtMs > request.time.toMillis()
@@ -19,6 +19,7 @@ match /dt_workspaces/{workspaceId}/projects/{projectId}/models/{filename} {
     && ((filename.matches('.*\\.glb$') && request.resource.contentType == 'model/gltf-binary')
       || (filename.matches('.*\\.dwg$') && request.resource.contentType == 'image/vnd.dwg')
       || (filename.matches('.*\\.dxf$') && request.resource.contentType == 'image/vnd.dxf')
-      || (filename.matches('.*\\.zip$') && request.resource.contentType == 'application/zip'));
+      || (filename.matches('.*\\.zip$') && request.resource.contentType == 'application/zip')
+      || (filename.matches('.*\\.skp$') && request.resource.contentType == 'application/vnd.sketchup.skp'));
   allow update, delete: if false;
 }

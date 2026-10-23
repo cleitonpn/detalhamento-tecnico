@@ -17,6 +17,8 @@ export const SCALE = { m: 1, cm: 0.01, mm: 0.001 };
 export const MAX_FILE_MB = 200;
 export const MAX_FILE_BYTES = MAX_FILE_MB * 1024 * 1024;
 export const MAX_PARTS = 5000;
+// Levantamento (JSON das peças) aceito; na nuvem ele é gravado compactado
+export const MAX_PROJECT_BYTES = 8 * 1024 * 1024;
 export const MATERIAL_REQUIRED = new Set([
   "metalon",
   "wall",
@@ -111,6 +113,7 @@ export const MODEL_FORMATS = {
   dwg: { contentType: "image/vnd.dwg", label: "DWG" },
   dxf: { contentType: "image/vnd.dxf", label: "DXF" },
   zip: { contentType: "application/zip", label: "ZIP" },
+  skp: { contentType: "application/vnd.sketchup.skp", label: "SketchUp" },
 };
 export const MODEL_HEADER_BYTES = 32;
 export function modelFormat(name) {
@@ -150,6 +153,14 @@ export function checkModelHeader(format, header, bytes) {
     );
   }
   if (format === "zip") return header.length >= 4 && u32(0) === 0x04034b50;
+  // SketchUp: FF FE FF 0E seguido de "SketchUp Model" em UTF-16
+  if (format === "skp")
+    return (
+      header.length >= 32 &&
+      u32(0) === 0x0efffeff &&
+      new TextDecoder("utf-16le").decode(header.subarray(4, 32)) ===
+        "SketchUp Model"
+    );
   return false;
 }
 
@@ -269,7 +280,10 @@ export function checkProject(project) {
     if (part.review.confirmed && partIssues(part).length)
       throw Error("Peça confirmada com informações pendentes.");
   }
-  if (new TextEncoder().encode(JSON.stringify(project)).byteLength > 700000)
+  if (
+    new TextEncoder().encode(JSON.stringify(project)).byteLength >
+    MAX_PROJECT_BYTES
+  )
     throw Error(
       "O levantamento ficou muito grande. Divida o projeto em arquivos menores.",
     );

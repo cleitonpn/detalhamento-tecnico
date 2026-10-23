@@ -119,7 +119,7 @@ test("GLB real ECBR: balcão e quatro testeiras preservam as medidas", async ({
   page.on("pageerror", (e) => errors.push(e.message));
   await page.goto("/");
   await expect(
-    page.getByRole("button", { name: "Enviar modelo (.dwg ou .glb)" }),
+    page.getByRole("button", { name: "Enviar modelo (.skp, .dwg ou .glb)" }),
   ).toBeEnabled();
   await page
     .getByLabel("Arquivo GLB", { exact: true })

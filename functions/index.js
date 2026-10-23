@@ -3,13 +3,12 @@ import { initializeApp } from "firebase-admin/app";
 import { getFirestore, FieldValue } from "firebase-admin/firestore";
 import { getStorage } from "firebase-admin/storage";
 import { createHash } from "node:crypto";
+import { packParts, unpackParts } from "./packing.js";
 import {
   assertId,
   checkProject,
   cleanText,
   createRelease,
-  toStoredParts,
-  fromStoredParts,
   MAX_FILE_BYTES,
   MAX_FILE_MB,
   MODEL_FORMATS,
@@ -223,9 +222,13 @@ export const dt_saveProject = endpoint(async (req) => {
       updatedAt: new Date().toISOString(),
       updatedBy: req.auth.uid,
     };
+    const summary = progress(saved);
     tx.set(ref, {
       ...saved,
-      parts: toStoredParts(saved.parts),
+      parts: [],
+      partsGz: packParts(saved.parts),
+      partCount: summary.total,
+      confirmedCount: summary.confirmed,
       modelPath: path,
     });
   });
@@ -237,8 +240,14 @@ export const dt_getProject = endpoint(async (req) => {
     snapshot = await projectRef(id, req.data.projectId).get();
   if (!snapshot.exists)
     throw new HttpsError("not-found", "Projeto não encontrado.");
-  const { modelPath: path, ...stored } = snapshot.data();
-  const project = { ...stored, parts: fromStoredParts(stored.parts) };
+  const {
+    modelPath: path,
+    partsGz,
+    partCount,
+    confirmedCount,
+    ...stored
+  } = snapshot.data();
+  const project = { ...stored, parts: unpackParts({ ...stored, partsGz }) };
   const saved =
     project.status === "validated" && project.revision > 0
       ? (
@@ -249,7 +258,10 @@ export const dt_getProject = endpoint(async (req) => {
         ).data() || null
       : null;
   const release = saved
-    ? { ...saved, parts: fromStoredParts(saved.parts) }
+    ? (({ partsGz: gz, ...rest }) => ({
+        ...rest,
+        parts: unpackParts({ ...rest, partsGz: gz }),
+      }))(saved)
     : null;
   return { project, path, release };
 });
@@ -263,7 +275,9 @@ export const dt_listProjects = endpoint(async (req) => {
   return {
     projects: list.docs.map((doc) => {
       const p = doc.data(),
-        summary = progress(p);
+        summary = p.partsGz
+          ? { total: p.partCount || 0, confirmed: p.confirmedCount || 0 }
+          : progress(p);
       return {
         id: p.id,
         name: p.name,
@@ -284,8 +298,14 @@ export const dt_publishRevision = endpoint(async (req) => {
       snapshot = await tx.get(ref);
     if (!snapshot.exists)
       throw new HttpsError("not-found", "Projeto não encontrado.");
-    const { modelPath: path, ...stored } = snapshot.data();
-    const project = { ...stored, parts: fromStoredParts(stored.parts) };
+    const {
+      modelPath: path,
+      partsGz,
+      partCount,
+      confirmedCount,
+      ...stored
+    } = snapshot.data();
+    const project = { ...stored, parts: unpackParts({ ...stored, partsGz }) };
     checkVersion(req.data.expectedVersion, project.version);
     release = createRelease(project, (project.revision || 0) + 1);
     release.artifacts = [
@@ -299,7 +319,7 @@ export const dt_publishRevision = endpoint(async (req) => {
     version = project.version + 1;
     tx.create(
       ref.collection("revisions").doc(String(release.revision)),
-      { ...release, parts: toStoredParts(release.parts) },
+      { ...release, parts: [], partsGz: packParts(release.parts) },
     );
     tx.update(ref, {
       status: "validated",

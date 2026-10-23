@@ -58,6 +58,8 @@ import {
   productionEnvelope,
 } from "./services/integration.js";
 import { auth, cloudMode } from "./services/firebase.js";
+// Script do 3ds Max (2023+): gera o .glb com grupos, nomes, camadas e materiais
+import maxExporterUrl from "../extensions/3dsmax/detalha_exportar.py?url";
 
 const appName = import.meta.env.VITE_APP_NAME || "Detalha";
 const signature = ({ version, updatedAt, updatedBy, ...project }) =>
@@ -247,11 +249,13 @@ export default function App() {
         throw Error("O arquivo salvo não corresponde ao projeto.");
       const lightweight = useLightweightMode(sourceFile);
       setBusy(
-        isCad(sourceFile.name)
-          ? "Lendo o desenho DWG e montando as peças 3D…"
-          : lightweight
-            ? "Lendo a geometria em modo leve, sem texturas…"
-            : "Lendo o modelo e suas texturas…",
+        /\.skp$/i.test(sourceFile.name)
+          ? "Lendo o modelo do SketchUp e montando as peças…"
+          : isCad(sourceFile.name)
+            ? "Lendo o desenho DWG e montando as peças 3D…"
+            : lightweight
+              ? "Lendo a geometria em modo leve, sem texturas…"
+              : "Lendo o modelo e suas texturas…",
       );
       nextScene = await loadModel(sourceFile, renderer, { buffer });
       setBusy("Organizando as peças e calculando as medidas…");
@@ -287,7 +291,12 @@ export default function App() {
       setIsolate(false);
       setXray(false);
       const cad = nextScene.userData.dtCad;
-      if (cad && !restored)
+      const skp = nextScene.userData.dtSkp;
+      if (skp && !restored)
+        setNotice(
+          `Modelo do SketchUp ${skp.version} aberto direto: ${skp.faces.toLocaleString("pt-BR")} faces e ${skp.instances.toLocaleString("pt-BR")} grupos/componentes. Componentes com nome viram uma peça inteira e itens pequenos (produtos expostos) ficam reunidos. Confira as peças antes de validar.`,
+        );
+      else if (cad && !restored)
         setNotice(
           [
             `Desenho aberto direto do DWG, em ${nextScene.userData.dtSourceUnit}. Confira a unidade em Dados do projeto.`,
@@ -424,9 +433,9 @@ export default function App() {
       <input
         ref={uploadRef}
         type="file"
-        accept=".glb,.dwg,.dxf,.zip"
+        accept=".skp,.glb,.dwg,.dxf,.zip"
         hidden
-        aria-label="Arquivo do modelo (GLB, DWG, DXF ou ZIP)"
+        aria-label="Arquivo do modelo (SKP, GLB, DWG, DXF ou ZIP)"
         onChange={(e) => {
           const f = e.target.files[0];
           e.target.value = "";
@@ -687,7 +696,7 @@ export default function App() {
                 onClick={() => uploadRef.current.click()}
               >
                 <Upload size={19} />
-                Enviar modelo (.dwg ou .glb)
+                Enviar modelo (.skp, .dwg ou .glb)
               </button>
               <button
                 className="text-button demo-button"
@@ -703,8 +712,16 @@ export default function App() {
                 Explorar uma demonstração <ChevronRight size={16} />
               </button>
               <small>
-                Até {MAX_FILE_MB} MB · DWG, DXF, ZIP do WeTransfer ou GLB 2.0
+                Até {MAX_FILE_MB} MB · SketchUp 2021+, DWG, DXF, ZIP do
+                WeTransfer ou GLB 2.0
               </small>
+              <a
+                className="text-button"
+                href={maxExporterUrl}
+                download="detalha_exportar.py"
+              >
+                Usa 3ds Max? Baixe o exportador para o Detalha
+              </a>
             </div>
           )}
           {project && (

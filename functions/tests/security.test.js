@@ -71,7 +71,15 @@ test("modelos DWG, DXF e ZIP: caminho com extensão e assinatura conferida", asy
   assert.throws(() => modelPath("team", "project", h, "exe"), /Formato/);
   assert.equal(modelFormat("Stand Eden.DWG"), "dwg");
   assert.equal(modelFormat("wetransfer.zip"), "zip");
-  assert.throws(() => modelFormat("modelo.skp"), /não suportado/);
+  assert.throws(() => modelFormat("modelo.3ds"), /não suportado/);
+  // SketchUp: FF FE FF 0E e "SketchUp Model" em UTF-16
+  assert.equal(modelFormat("Stand.SKP"), "skp");
+  const skp = Buffer.concat([
+    Buffer.from([0xff, 0xfe, 0xff, 0x0e]),
+    Buffer.from("SketchUp Model", "utf16le"),
+  ]);
+  assert.ok(checkModelHeader("skp", skp, 1000));
+  assert.ok(!checkModelHeader("skp", Buffer.alloc(32), 1000));
   const bytes = (s) => Buffer.from(s, "latin1");
   assert.ok(checkModelHeader("dwg", bytes("AC1032\0\0\0\0\0\0"), 12));
   assert.ok(!checkModelHeader("dwg", bytes("PK\x03\x04garbage"), 12));
@@ -110,4 +118,40 @@ test("orientação da peça vai plana para o Firestore e volta em três eixos", 
   // Projetos antigos (sem frame) e já convertidos passam intactos
   assert.deepEqual(fromStoredParts([{ id: "p2" }]), [{ id: "p2" }]);
   assert.deepEqual(fromStoredParts([part])[0], part);
+});
+
+test("peças vão compactadas para o Firestore: levantamento grande cabe no documento", async () => {
+  const { packParts, unpackParts, MAX_PACKED_PARTS } = await import(
+    "../packing.js"
+  );
+  // 3000 peças com 30 malhas cada: ~3 MB de JSON, bem acima de 1 MiB
+  const parts = Array.from({ length: 3000 }, (_, i) => ({
+    id: `part-0-1-${i}`,
+    label: `Peça ${i}`,
+    meshIds: Array.from({ length: 30 }, (_, k) => `0/0/3/${i}/${k}/1`),
+    bounds: { min: [i * 0.01, 0, 0], max: [i * 0.01 + 1.2, 0.75, 0.6] },
+    dimensions: [1.2, 0.75, 0.6],
+    frame: {
+      origin: [i * 0.01, 0, 0],
+      axes: [
+        [1, 0, 0],
+        [0, 1, 0],
+        [0, 0, 1],
+      ],
+    },
+    materialsOriginal: ["MDF Branco", "Adesivo"],
+    review: { kind: "unclassified", notes: "" },
+  }));
+  const raw = Buffer.byteLength(JSON.stringify(parts));
+  const packed = packParts(parts);
+  assert.ok(raw > 2 * 1024 * 1024, `JSON ${raw}`);
+  assert.ok(packed.length < MAX_PACKED_PARTS, `compactado ${packed.length}`);
+  assert.deepEqual(unpackParts({ partsGz: packed }), parts);
+  // Projetos salvos antes da compactação (orientação em nove números) continuam abrindo
+  const legacy = [{ id: "p", frame: { origin: [0, 0, 0], axes: [1, 0, 0, 0, 1, 0, 0, 0, 1] } }];
+  assert.deepEqual(unpackParts({ parts: legacy })[0].frame.axes, [
+    [1, 0, 0],
+    [0, 1, 0],
+    [0, 0, 1],
+  ]);
 });

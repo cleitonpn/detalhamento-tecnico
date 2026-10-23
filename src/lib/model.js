@@ -12,7 +12,7 @@ const plainReview = () => ({
 });
 const usefulName = (name) =>
   name &&
-  !/^(?:geom3d.*|componente.*|component.*|group.*|scene.*|node.*|mesh.*)$/i.test(
+  !/^(?:geom3d.*|componente.*|component.*|group.*|agrupar.*|grupo#.*|scene.*|node.*|mesh.*)$/i.test(
     name,
   );
 
@@ -138,14 +138,21 @@ function describe(meshes, ids, label, scale, frameNode = meshes[0]) {
   frame.axes = order.map((i) => frame.axes[i]);
   const min = box.min.clone().multiplyScalar(scale).toArray(),
     max = box.max.clone().multiplyScalar(scale).toArray();
+  // Precisão gravada: 0,01 mm basta para medir e evita números como 0,19999998807907104
+  // (o levantamento inteiro precisa caber num documento da nuvem)
+  const mm = (v) => Math.round(v * 1e5) / 1e5,
+    unit = (v) => Math.round(v * 1e7) / 1e7;
   return {
     id: `part-${ids[0].replaceAll("/", "-")}`,
     label,
     meshIds: ids,
-    bounds: { min, max },
-    dimensions,
+    bounds: { min: min.map(mm), max: max.map(mm) },
+    dimensions: dimensions.map(mm),
     measurementBasis,
-    frame,
+    frame: {
+      origin: frame.origin.map(mm),
+      axes: frame.axes.map((a) => a.map(unit)),
+    },
     materialsOriginal: [
       ...new Set(
         meshes.flatMap((o) =>
@@ -185,6 +192,13 @@ export function partitionScene(scene, sourceUnit = "m") {
   }
   collect(scene);
   if (!meshMap.size) throw Error("O modelo não contém malhas para detalhar.");
+  // Leitores próprios (SketchUp) marcam o nível de peça: o mais alto marcado em cada ramo
+  const marked = [];
+  scene.traverse((o) => {
+    if (!o.userData.dtPart) return;
+    for (let p = o.parent; p; p = p.parent) if (p.userData.dtPart) return;
+    marked.push(o);
+  });
   let root = scene;
   const hasMesh = (node) => {
     let found = false;
@@ -198,7 +212,18 @@ export function partitionScene(scene, sourceUnit = "m") {
     if (children.length !== 1) break;
     root = children[0];
   }
-  const roots = root.isMesh ? [root] : root.children.filter(hasMesh);
+  const roots = marked.length
+    ? []
+    : root.isMesh
+      ? [root]
+      : root.children.filter(hasMesh);
+  for (const node of marked) {
+    const meshes = [];
+    node.traverse((o) => {
+      if (meshMap.has(o.userData.dtPath)) meshes.push(o);
+    });
+    if (meshes.length) groups.push({ node, meshes });
+  }
   for (const node of roots) {
     const meshes = [];
     node.traverse((o) => {
@@ -247,13 +272,13 @@ export function partitionScene(scene, sourceUnit = "m") {
   };
 }
 
-export const isCad = (name) => /\.(dwg|dxf|zip)$/i.test(name || "");
+export const isCad = (name) => /\.(dwg|dxf|zip|skp)$/i.test(name || "");
 export async function validateFile(file) {
-  if (!file || !/\.(glb|dwg|dxf|zip)$/i.test(file.name))
-    throw Error("Escolha um arquivo .glb, .dwg, .dxf ou .zip.");
+  if (!file || !/\.(glb|dwg|dxf|zip|skp)$/i.test(file.name))
+    throw Error("Escolha um arquivo .skp, .glb, .dwg, .dxf ou .zip.");
   if (!file.size || file.size > MAX_FILE_BYTES)
     throw Error(`Envie um arquivo de até ${MAX_FILE_MB} MB.`);
-  // DWG/DXF/ZIP são conferidos pelo leitor, que explica o problema se o arquivo não abrir.
+  // DWG/DXF/ZIP/SKP são conferidos pelo leitor, que explica o problema se o arquivo não abrir.
   if (isCad(file.name)) return file;
   const header = await file.slice(0, 12).arrayBuffer(),
     view = new DataView(header);
