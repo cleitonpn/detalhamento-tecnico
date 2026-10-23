@@ -311,7 +311,8 @@ export function detectArcs(lines, { minSegments = 3 } = {}) {
   const deg = Math.PI / 180;
   const arcs = [];
   let freeCurves = 0;
-  const chains = polylines(lines);
+  const chains = polylines(cleanLines(lines));
+  const freeRuns = [];
   for (const chain of chains) {
     let pts = chain.pts;
     const closed = chain.closed;
@@ -379,7 +380,31 @@ export function detectArcs(lines, { minSegments = 3 } = {}) {
       const free =
         keepsCurving(turns[i - 1], i - 1 >= 0 ? segLen(i - 1) : 0) ||
         keepsCurving(turns[j + 1], j + 3 < n ? segLen(j + 2) : 0);
-      if (free) freeCurves++;
+      if (free) {
+        freeCurves++;
+        // Estende o trecho enquanto a curva segue do mesmo lado, com segmentos parecidos
+        const curving = (t, a, b) =>
+          t !== undefined &&
+          Math.sign(t) === Math.sign(t0) &&
+          Math.abs(t) >= 0.3 * deg &&
+          Math.abs(t) <= 40 * deg &&
+          a > 0 &&
+          b / a < 2 &&
+          b / a > 0.5;
+        let lo = i,
+          hi = j;
+        while (lo > 0 && curving(turns[lo - 1], segLen(lo), segLen(lo - 1)))
+          lo--;
+        while (
+          hi + 1 < turns.length &&
+          curving(turns[hi + 1], segLen(hi + 1), segLen(hi + 2))
+        )
+          hi++;
+        const last = freeRuns.at(-1);
+        if (last && last.chain === chain && lo <= last.hi)
+          last.hi = Math.max(last.hi, hi);
+        else freeRuns.push({ chain, pts, lo, hi });
+      }
       if (segments >= minSegments && !free) {
         let fit = fitCircle(run);
         if (fit) {
@@ -431,7 +456,7 @@ export function detectArcs(lines, { minSegments = 3 } = {}) {
             length: fit.r * s,
             chord: full ? 0 : 2 * fit.r * Math.sin(s / 2),
             sagitta: full ? 0 : fit.r * (1 - Math.cos(s / 2)),
-            segments,
+            segments: run.length - 1,
             deviation: fit.maxDev,
             confidence:
               segments >= 6 && s >= 30 * deg
@@ -448,6 +473,9 @@ export function detectArcs(lines, { minSegments = 3 } = {}) {
   }
   const merged = mergeArcs(arcs);
   merged.freeCurves = freeCurves;
+  merged.free = freeRuns.map(({ pts, lo, hi }) =>
+    freeCurve(pts.slice(lo, hi + 3)),
+  );
   return merged;
 }
 
@@ -491,11 +519,22 @@ function extendAcrossJunctions(run, fit, on, len0, neighbors) {
 function mergeArcs(arcs) {
   const out = [];
   for (const a of arcs.sort((p, q) => q.length - p.length)) {
+    // Mesmo círculo e mesmo trecho (cópia ou pedaço de um arco já achado)
+    const within = (b) => {
+      if (b.full) return true;
+      const mid = Math.atan2(
+        Math.sin(a.start + a.sweep / 2),
+        Math.cos(a.start + a.sweep / 2),
+      );
+      let d = (mid - b.start) * Math.sign(b.sweep || 1);
+      d = ((d % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
+      return d <= Math.abs(b.sweep) + 0.05;
+    };
     const twin = out.find(
       (b) =>
         Math.hypot(a.cx - b.cx, a.cy - b.cy) < 2e-3 &&
         Math.abs(a.r - b.r) < 2e-3 &&
-        Math.abs(Math.abs(a.sweep) - Math.abs(b.sweep)) < 0.05,
+        (Math.abs(Math.abs(a.sweep) - Math.abs(b.sweep)) < 0.05 || within(b)),
     );
     if (!twin) out.push(a);
   }
@@ -512,6 +551,285 @@ function mergeArcs(arcs) {
         a.thickness = b.thickness = b.r - a.r;
       }
   return out.sort((p, q) => q.r - p.r);
+}
+
+/**
+ * Curva livre (elipse, spline, concordância variável): não tem um raio só. Mede o
+ * raio do círculo que melhor a acompanha, o menor e o maior raio local, a corda e a
+ * flecha — o que a marcenaria usa para traçar o gabarito.
+ */
+function freeCurve(points) {
+  const fit = fitCircle(points) || { cx: 0, cy: 0, r: 0 };
+  const radii = [];
+  const step = Math.max(1, Math.floor(points.length / 8));
+  for (let k = step; k + step < points.length; k += step) {
+    const [a, b, c] = [points[k - step], points[k], points[k + step]];
+    const ab = Math.hypot(b[0] - a[0], b[1] - a[1]),
+      bc = Math.hypot(c[0] - b[0], c[1] - b[1]),
+      ca = Math.hypot(a[0] - c[0], a[1] - c[1]);
+    const cross = Math.abs(
+      (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]),
+    );
+    if (cross > 1e-12) radii.push((ab * bc * ca) / (2 * cross));
+  }
+  let length = 0;
+  for (let k = 1; k < points.length; k++)
+    length += Math.hypot(
+      points[k][0] - points[k - 1][0],
+      points[k][1] - points[k - 1][1],
+    );
+  const [p0, p1] = [points[0], points.at(-1)];
+  const chord = Math.hypot(p1[0] - p0[0], p1[1] - p0[1]) || 1e-12;
+  let sagitta = 0;
+  for (const p of points)
+    sagitta = Math.max(
+      sagitta,
+      Math.abs(
+        (p1[0] - p0[0]) * (p0[1] - p[1]) - (p0[0] - p[0]) * (p1[1] - p0[1]),
+      ) / chord,
+    );
+  return {
+    free: true,
+    cx: fit.cx,
+    cy: fit.cy,
+    r: fit.r,
+    rMin: radii.length ? Math.min(...radii) : fit.r,
+    rMax: radii.length ? Math.max(...radii) : fit.r,
+    start: Math.atan2(p0[1] - fit.cy, p0[0] - fit.cx),
+    sweep: length / (fit.r || 1),
+    length,
+    chord,
+    sagitta,
+    segments: points.length - 1,
+    points,
+  };
+}
+
+/**
+ * Remove linhas repetidas e trechos contidos em outra linha (silhuetas de superfícies
+ * curvas desenhadas sobre as arestas): eles criam nós falsos que quebram os arcos.
+ */
+export function cleanLines(lines, tol = 5e-4) {
+  const seen = new Set(),
+    uniq = [];
+  const q = (v) => Math.round(v / tol);
+  for (const l of lines) {
+    const [x1, y1, x2, y2] = l;
+    const a = `${q(x1)},${q(y1)}`,
+      b = `${q(x2)},${q(y2)}`;
+    if (a === b) continue;
+    const k = a < b ? `${a}|${b}` : `${b}|${a}`;
+    if (seen.has(k)) continue;
+    seen.add(k);
+    uniq.push([x1, y1, x2, y2, Math.hypot(x2 - x1, y2 - y1)]);
+  }
+  if (uniq.length > 30000) return uniq.map((l) => l.slice(0, 4));
+  // Grade espacial para comparar só linhas vizinhas
+  let span = 0;
+  for (const [x1, y1, x2, y2] of uniq)
+    span = Math.max(
+      span,
+      Math.abs(x1),
+      Math.abs(y1),
+      Math.abs(x2),
+      Math.abs(y2),
+    );
+  const cell = Math.max(span / 100, 0.01);
+  const grid = new Map();
+  const cellsOf = ([x1, y1, x2, y2]) => {
+    const out = [];
+    const i0 = Math.floor(Math.min(x1, x2) / cell),
+      i1 = Math.floor(Math.max(x1, x2) / cell),
+      j0 = Math.floor(Math.min(y1, y2) / cell),
+      j1 = Math.floor(Math.max(y1, y2) / cell);
+    if ((i1 - i0 + 1) * (j1 - j0 + 1) > 400) return null;
+    for (let i = i0; i <= i1; i++)
+      for (let j = j0; j <= j1; j++) out.push(`${i},${j}`);
+    return out;
+  };
+  uniq.forEach((l, n) => {
+    for (const c of cellsOf(l) || []) {
+      if (!grid.has(c)) grid.set(c, []);
+      grid.get(c).push(n);
+    }
+  });
+  const onSeg = (px, py, [x1, y1, x2, y2, len]) => {
+    const t = ((px - x1) * (x2 - x1) + (py - y1) * (y2 - y1)) / (len * len);
+    if (t < -1e-6 || t > 1 + 1e-6) return false;
+    return Math.hypot(x1 + t * (x2 - x1) - px, y1 + t * (y2 - y1) - py) <= tol;
+  };
+  return uniq
+    .filter((l, n) => {
+      const cells = cellsOf(l);
+      if (!cells) return true;
+      const near = new Set(cells.flatMap((c) => grid.get(c) || []));
+      for (const m of near) {
+        const o = uniq[m];
+        if (m === n || o[4] <= l[4] + tol) continue;
+        if (onSeg(l[0], l[1], o) && onSeg(l[2], l[3], o)) return false;
+      }
+      return true;
+    })
+    .map((l) => l.slice(0, 4));
+}
+
+// ---------- chanfros e dobras retas ----------
+
+/** Trechos retos: linhas colineares encostadas viram um trecho só. */
+export function straightRuns(lines, minLen = 0.005) {
+  const deg = Math.PI / 180;
+  const groups = new Map();
+  for (const [x1, y1, x2, y2] of lines) {
+    const len = Math.hypot(x2 - x1, y2 - y1);
+    if (len < 1e-4) continue;
+    let th = Math.atan2(y2 - y1, x2 - x1);
+    if (th < 0) th += Math.PI;
+    if (th >= Math.PI - 1e-9) th -= Math.PI;
+    const c = Math.cos(th),
+      sn = Math.sin(th);
+    const rho = -sn * x1 + c * y1;
+    const key = `${Math.round(th / (0.25 * deg))}|${Math.round(rho / 0.001)}`;
+    if (!groups.has(key)) groups.set(key, { th, rho, spans: [] });
+    const t1 = c * x1 + sn * y1,
+      t2 = c * x2 + sn * y2;
+    groups.get(key).spans.push([Math.min(t1, t2), Math.max(t1, t2)]);
+  }
+  const runs = [];
+  for (const { th, rho, spans } of groups.values()) {
+    spans.sort((p, q) => p[0] - q[0]);
+    const c = Math.cos(th),
+      sn = Math.sin(th);
+    const at = (t) => [c * t - sn * rho, sn * t + c * rho];
+    let [a, b] = spans[0];
+    const flush = () => {
+      if (b - a >= minLen)
+        runs.push({ th, rho, a: at(a), b: at(b), len: b - a });
+    };
+    for (const [p, q] of spans.slice(1)) {
+      if (p <= b + 0.001) b = Math.max(b, q);
+      else {
+        flush();
+        [a, b] = [p, q];
+      }
+    }
+    flush();
+  }
+  return runs;
+}
+
+// Interseção das retas que passam por dois trechos (null se quase paralelas)
+function meet(r, s) {
+  const d1 = [r.b[0] - r.a[0], r.b[1] - r.a[1]],
+    d2 = [s.b[0] - s.a[0], s.b[1] - s.a[1]];
+  const den = d1[0] * d2[1] - d1[1] * d2[0];
+  if (Math.abs(den) < 1e-12) return null;
+  const t = ((s.a[0] - r.a[0]) * d2[1] - (s.a[1] - r.a[1]) * d2[0]) / den;
+  return [r.a[0] + t * d1[0], r.a[1] + t * d1[1]];
+}
+
+/**
+ * Chanfros e dobras retas de uma vista: trechos inclinados (nem horizontais nem
+ * verticais) relevantes. As pontas vão até a quina virtual com o trecho vizinho
+ * (onde as retas se encontrariam sem o arredondamento), como se cota em marcenaria.
+ * Devolve comprimento, inclinação em relação à horizontal, catetos e ângulo da dobra.
+ */
+export function detectSlopes(lines, width, height, arcs = [], curves = []) {
+  const deg = Math.PI / 180;
+  const size = Math.max(width, height);
+  const runs = straightRuns(lines, 0.02);
+  const onArc = (p) =>
+    arcs.some(
+      (a) =>
+        Math.abs(Math.hypot(p[0] - a.cx, p[1] - a.cy) - a.r) <=
+        Math.max(1e-3, 0.01 * a.r),
+    );
+  const off = (th) =>
+    Math.min(th, Math.abs(th - Math.PI / 2), Math.PI - th) / deg;
+  const slopes = [];
+  for (const r of runs) {
+    if (off(r.th) < 3 || r.len < Math.max(0.02, 0.03 * size)) continue;
+    const mid = [(r.a[0] + r.b[0]) / 2, (r.a[1] + r.b[1]) / 2];
+    if (onArc(r.a) && onArc(r.b) && onArc(mid)) continue; // corda de um arco
+    // Corda de uma curva livre: as duas pontas são vértices da curva
+    const onCurve = (p) =>
+      curves.some((c) =>
+        c.points.some((q) => Math.hypot(q[0] - p[0], q[1] - p[1]) <= 1e-3),
+      );
+    if (onCurve(r.a) && onCurve(r.b)) continue;
+    // Quina virtual em cada ponta: o trecho reto vizinho mais próximo, não paralelo
+    const corner = (end) => {
+      let best = null,
+        bd = Math.max(0.03, 0.25 * r.len);
+      let bend = null;
+      for (const n of runs) {
+        if (n === r) continue;
+        let dth = Math.abs(n.th - r.th);
+        dth = Math.min(dth, Math.PI - dth);
+        if (dth < 10 * deg) continue;
+        const d = Math.min(
+          Math.hypot(n.a[0] - end[0], n.a[1] - end[1]),
+          Math.hypot(n.b[0] - end[0], n.b[1] - end[1]),
+        );
+        if (d < bd) {
+          const p = meet(r, n);
+          if (
+            p &&
+            Math.hypot(p[0] - end[0], p[1] - end[1]) <= bd + 0.2 * r.len
+          ) {
+            bd = d;
+            best = p;
+            bend = 180 - dth / deg; // ângulo interno entre os dois trechos
+          }
+        }
+      }
+      return { p: best || end, bend };
+    };
+    const ca = corner(r.a),
+      cb = corner(r.b);
+    const [p, q] = [ca.p, cb.p];
+    const dx = Math.abs(q[0] - p[0]),
+      dy = Math.abs(q[1] - p[1]);
+    slopes.push({
+      x1: p[0],
+      y1: p[1],
+      x2: q[0],
+      y2: q[1],
+      length: Math.hypot(dx, dy),
+      straight: r.len,
+      angle: Math.atan2(dy, dx) / deg,
+      dx,
+      dy,
+      bends: [ca.bend, cb.bend].filter((v) => v != null),
+    });
+  }
+  // Iguais (mesmo comprimento e inclinação) viram um item: "C1 · 4×"
+  const groups = [];
+  for (const sl of slopes.sort((p, q) => q.length - p.length)) {
+    const g = groups.find(
+      (x) =>
+        Math.abs(x.length - sl.length) <= 0.002 &&
+        Math.abs(x.angle - sl.angle) <= 0.5,
+    );
+    if (g) g.items.push(sl);
+    else groups.push({ ...sl, items: [sl] });
+  }
+  return groups.map((g) => ({ ...g, count: g.items.length }));
+}
+
+/** Acrescenta posições às cotas em cadeia (quinas de chanfros), sem trechos menores que 2%. */
+export function addStations(chain, extra, extent) {
+  const tol = Math.max(2e-3, extent * 0.004);
+  const base = chain ? [...chain] : [0, extent];
+  for (const v of extra)
+    if (v > tol && v < extent - tol && base.every((b) => Math.abs(b - v) > tol))
+      base.push(v);
+  base.sort((p, q) => p - q);
+  const minGap = extent * 0.02;
+  const kept = [0];
+  for (const v of base.slice(1, -1))
+    if (v - kept.at(-1) >= minGap && extent - v >= minGap) kept.push(v);
+  kept.push(extent);
+  return kept.length >= 3 ? kept : null;
 }
 
 // ---------- cotas ----------
