@@ -12,6 +12,8 @@ import {
   fmtLen,
   smoothEdges,
   silhouettes,
+  detectSlopes,
+  addStations,
 } from "./techdraw.js";
 import { classifyLines, isometricImage } from "./hlr.js";
 
@@ -48,6 +50,7 @@ export function analyzePart(part, meshMap, sourceUnit) {
   const smooth = simplified ? [] : smoothEdges(triangles);
   const views = {};
   const arcs = [];
+  const free = [];
   let freeCurves = 0;
   for (const view of ["front", "top", "side"]) {
     const projected = projectSegments(
@@ -61,6 +64,7 @@ export function analyzePart(part, meshMap, sourceUnit) {
     const found = detectArcs(projected.map(flat));
     freeCurves += found.freeCurves || 0;
     found.forEach((a) => arcs.push({ ...a, view }));
+    (found.free || []).forEach((a) => free.push({ ...a, view }));
     const [w, h] = VIEW_DEFS[view].size(dims);
     views[view] = {
       view,
@@ -71,6 +75,7 @@ export function analyzePart(part, meshMap, sourceUnit) {
       hiddenOmitted: cls.hidden.length > MAX_HIDDEN,
       exactHidden: cls.exact,
       arcs: found,
+      found,
       raw: cls.visible,
     };
   }
@@ -83,13 +88,27 @@ export function analyzePart(part, meshMap, sourceUnit) {
     const deg = (Math.abs(a.sweep) * 180) / Math.PI;
     if (a.r < 0.003 || a.segments < 4 || a.r > 2 * size) return false;
     if (!a.full && deg < 20) return false;
-    return (a.full ? 2 * a.r : a.length) >= 0.04 * size;
+    return (a.full ? 2 * a.r : a.length) >= Math.min(0.04 * size, 0.05);
   };
   const kept = arcs.filter(relevant);
   const noise = arcs.length - kept.length;
   // Forma orgânica (estofado, almofadas): muitas curvas pequenas e irregulares.
   // Nesses casos um raio não ajuda a fabricar; a folha avisa e não cota raios.
   const organic = (noise >= 15 && noise > 2 * kept.length) || freeCurves >= 12;
+  // Chanfros e dobras retas (testeira sextavada, pórtico chanfrado): comprimento,
+  // inclinação e catetos até a quina virtual
+  const slopes = [];
+  if (!organic)
+    for (const v of Object.values(views)) {
+      v.slopes = detectSlopes(
+        v.lines,
+        v.width,
+        v.height,
+        v.found,
+        v.found.free,
+      );
+      v.slopes.forEach((sl) => slopes.push({ ...sl, view: v.view }));
+    }
   // Cotas parciais: em formas orgânicas só contam arestas longas (as dobras do tecido são curtas)
   for (const v of Object.values(views)) {
     const minCross = organic ? 0.3 : 0.08;
@@ -110,6 +129,26 @@ export function analyzePart(part, meshMap, sourceUnit) {
       organic ? 3 : 10,
     );
     delete v.raw;
+    delete v.found;
+    // Quinas dos chanfros também entram nas cotas em cadeia (os catetos)
+    if (v.slopes?.length) {
+      const pts = v.slopes.flatMap((g) =>
+        g.items.flatMap((sl) => [
+          [sl.x1, sl.y1],
+          [sl.x2, sl.y2],
+        ]),
+      );
+      v.chainX = addStations(
+        v.chainX,
+        pts.map((p) => p[0]),
+        v.width,
+      );
+      v.chainY = addStations(
+        v.chainY,
+        pts.map((p) => p[1]),
+        v.height,
+      );
+    }
   }
   // Raios iguais na mesma vista (cantos boleados, pés) viram um só item: "R1 · 4×"
   const groups = new Map();
@@ -128,8 +167,43 @@ export function analyzePart(part, meshMap, sourceUnit) {
   grouped.forEach((a, i) => (a.id = `R${i + 1}`));
   arcs.length = 0;
   arcs.push(...grouped);
+  // Curvas que não são arco de círculo: raio aproximado, faixa de raios, corda e flecha
+  const curves = organic
+    ? []
+    : free
+        .filter(
+          (c) =>
+            c.r >= 0.005 &&
+            c.length >=
+              Math.max(
+                0.02,
+                Math.min(
+                  0.04 * Math.max(...VIEW_DEFS[c.view].size(dims)),
+                  0.05,
+                ),
+              ),
+        )
+        .sort((p, q) => q.length - p.length)
+        .slice(0, 4);
+  curves.forEach((c, i) => (c.id = `L${i + 1}`));
+  // Chanfros: no máximo 6, os mais longos; numerados C1, C2…
+  const chamfers = slopes
+    .sort((p, q) => q.length - p.length)
+    .slice(0, 6)
+    .map((sl, i) => ({ ...sl, id: `C${i + 1}` }));
+  for (const v of Object.values(views))
+    v.slopes = chamfers.filter((c) => c.view === v.view);
   const iso = isometricImage(triangles, segments, dims);
-  return { views, arcs, iso, simplified, freeCurves, organic };
+  return {
+    views,
+    arcs,
+    curves,
+    chamfers,
+    iso,
+    simplified,
+    freeCurves,
+    organic,
+  };
 }
 
 /** Monta a folha (primitivas em mm, origem no canto superior esquerdo). */
@@ -164,6 +238,10 @@ export function buildSheet({
     items.push({ t: "rect", x, y, w, h, wd, color });
 
   const { views, arcs, iso } = analysis;
+  const curves = analysis.curves || [],
+    chamfers = analysis.chamfers || [];
+  const deg1 = (v) =>
+    `${v.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}°`;
   const area = [
     cells.front.w - CELL_PAD.l - CELL_PAD.r,
     cells.front.h - CELL_PAD.t - CELL_PAD.b,
@@ -312,16 +390,17 @@ export function buildSheet({
     // A marca de centro só aparece quando o centro fica perto, dentro da vista.
     const inside = (x, y) =>
       x >= c.x + 2 && x <= c.x + c.w - 2 && y >= c.y + 7 && y <= c.y + c.h - 2;
-    for (const a of arcs.filter((x) => x.view === view)) {
+    for (const a of [...arcs, ...curves].filter((x) => x.view === view)) {
       const cx = X(a.cx),
         cy = Y(a.cy);
       const mid = a.full ? a.start + Math.PI / 4 : a.start + a.sweep / 2;
-      const mx = X(a.cx + a.r * Math.cos(mid)),
-        my = Y(a.cy + a.r * Math.sin(mid));
+      const pm = a.free ? a.points[Math.floor(a.points.length / 2)] : null;
+      const mx = pm ? X(pm[0]) : X(a.cx + a.r * Math.cos(mid)),
+        my = pm ? Y(pm[1]) : Y(a.cy + a.r * Math.sin(mid));
       const dist = Math.hypot(mx - cx, my - cy) || 1;
       const ux = (mx - cx) / dist,
         uy = (my - cy) / dist;
-      if (dist <= 25 && inside(cx, cy)) {
+      if (!a.free && dist <= 25 && inside(cx, cy)) {
         line(cx - 1.4, cy, cx + 1.4, cy, 0.15, DIM);
         line(cx, cy - 1.4, cx, cy + 1.4, 0.15, DIM);
         line(cx, cy, mx, my, 0.18, DIM);
@@ -335,9 +414,11 @@ export function buildSheet({
           DIM,
         );
       const many = a.count > 1 ? ` (${a.count}×)` : "";
-      const full = a.full
-        ? `${a.id} Ø${L(a.r * 2)}${many}`
-        : `${a.id} R${L1(a.r)}${many}`;
+      const full = a.free
+        ? `${a.id} R≈${L(a.r)}`
+        : a.full
+          ? `${a.id} Ø${L(a.r * 2)}${many}`
+          : `${a.id} R${L1(a.r)}${many}`;
       // Procura uma posição livre ao longo da chamada; sem espaço, fica só o ID (detalhes na tabela)
       let placed = false;
       for (const [step, label] of [
@@ -376,6 +457,179 @@ export function buildSheet({
       }
       if (!placed)
         text(mx + 0.8, my - 0.8, a.id, 1.9, { color: DIM, bold: true });
+    }
+    const vcx = ox + gw / 2,
+      vcy = oy + gh / 2;
+    // Segmentos da vista no papel, para a cota do chanfro não cruzar o desenho
+    const paper = v.lines.map(([x1, y1, x2, y2]) => [
+      X(x1),
+      Y(y1),
+      X(x2),
+      Y(y2),
+    ]);
+    const crosses = (p, q) =>
+      paper.some(([a, b, c, d]) => {
+        const den = (q[0] - p[0]) * (d - b) - (q[1] - p[1]) * (c - a);
+        if (Math.abs(den) < 1e-9) return false;
+        const t = ((a - p[0]) * (d - b) - (b - p[1]) * (c - a)) / den,
+          u = ((a - p[0]) * (q[1] - p[1]) - (b - p[1]) * (q[0] - p[0])) / den;
+        return t > 0.02 && t < 0.98 && u > 0.02 && u < 0.98;
+      });
+    for (const g of v.slopes || []) {
+      const geo = g.items.map((sl) => {
+        const x1 = X(sl.x1),
+          y1 = Y(sl.y1),
+          x2 = X(sl.x2),
+          y2 = Y(sl.y2);
+        const len = Math.hypot(x2 - x1, y2 - y1) || 1;
+        const ux = (x2 - x1) / len,
+          uy = (y2 - y1) / len;
+        // Normal para fora da peça (lado oposto ao centro da vista)
+        let nx = -uy,
+          ny = ux;
+        if (((x1 + x2) / 2 - vcx) * nx + ((y1 + y2) / 2 - vcy) * ny < 0) {
+          nx = -nx;
+          ny = -ny;
+        }
+        // Texto acompanha o trecho, sempre legível (nunca de cabeça para baixo)
+        let ang = (Math.atan2(uy, ux) * 180) / Math.PI,
+          tx = ux,
+          ty = uy;
+        if (ang > 90 || ang <= -90) {
+          ang = ang > 90 ? ang - 180 : ang + 180;
+          tx = -ux;
+          ty = -uy;
+        }
+        return { x1, y1, x2, y2, len, ux, uy, nx, ny, ang, tx, ty };
+      });
+      const label = `${g.id} ${L(g.length)} · ${deg1(g.angle)}${g.count > 1 ? ` (${g.count}×)` : ""}`;
+      let off = 4.5,
+        size = 2.1;
+      // Texto do lado de fora da linha de cota (a base do texto fica do lado da peça
+      // quando a normal aponta para baixo no papel)
+      const textAt = (s, side, d, w) => {
+        // Se o "para cima" das letras aponta para a peça, o texto desce a altura da letra
+        const r = (s.ang * Math.PI) / 180;
+        const up = Math.sin(r) * s.nx * side - Math.cos(r) * s.ny * side;
+        const dd = d + (up < 0 ? 1.7 : 0);
+        const along = -w / 2;
+        return [
+          (s.x1 + s.x2) / 2 + s.nx * side * dd + s.tx * along,
+          (s.y1 + s.y2) / 2 + s.ny * side * dd + s.ty * along,
+        ];
+      };
+      // Embaixo e à esquerda da vista ficam as cotas em cadeia: a cota do chanfro não entra lá
+      const free = ([x, y]) => y <= oy + gh + 0.3 && x >= ox - 0.3;
+      const textBox = (s, side, d, w) => {
+        const [px, py] = textAt(s, side, d, w);
+        const qx = px + s.tx * w,
+          qy = py + s.ty * w;
+        return {
+          p: [px, py],
+          q: [qx, qy],
+          x0: Math.min(px, qx) - 1,
+          x1: Math.max(px, qx) + 1,
+          y0: Math.min(py, qy) - 2,
+          y1: Math.max(py, qy) + 1,
+        };
+      };
+      const textFits = (s, side, d, w) => {
+        const t = textBox(s, side, d, w);
+        return (
+          inside(...t.p) &&
+          inside(...t.q) &&
+          free(t.p) &&
+          free(t.q) &&
+          !crosses(t.p, t.q) &&
+          !labels.some(
+            (b) => b.x0 < t.x1 && b.x1 > t.x0 && b.y0 < t.y1 && b.y1 > t.y0,
+          )
+        );
+      };
+      // Cota completa na primeira ocorrência e lado onde ela não cruza o desenho
+      const wFull = label.length * size * 0.52;
+      let pick = null;
+      for (const [side, d] of [
+        [1, 4.5],
+        [1, 8.5],
+        [-1, 4.5],
+      ])
+        for (const [n, s] of geo.entries()) {
+          if (pick || s.len < 3) continue;
+          off = d;
+          const a = [s.x1 + s.nx * side * off, s.y1 + s.ny * side * off],
+            b = [s.x2 + s.nx * side * off, s.y2 + s.ny * side * off];
+          const m = [(s.x1 + s.x2) / 2, (s.y1 + s.y2) / 2],
+            mo = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+          if (
+            free(a) &&
+            free(b) &&
+            !crosses(a, b) &&
+            !crosses([s.x1, s.y1], a) &&
+            !crosses([s.x2, s.y2], b) &&
+            !crosses(m, mo) &&
+            textFits(s, side, off + 0.9, wFull)
+          )
+            pick = { n, side, off: d };
+        }
+      pick ||= { n: 0, side: 1, off: 4.5 };
+      off = pick.off;
+      geo.forEach((s, n) => {
+        if (s.len < 3) return;
+        if (n === pick.n) {
+          const side = pick.side;
+          const nx = s.nx * side,
+            ny = s.ny * side;
+          const a = [s.x1 + nx * off, s.y1 + ny * off],
+            b = [s.x2 + nx * off, s.y2 + ny * off];
+          line(
+            s.x1 + nx * 0.8,
+            s.y1 + ny * 0.8,
+            a[0] + nx * 1.5,
+            a[1] + ny * 1.5,
+            0.13,
+            DIM,
+          );
+          line(
+            s.x2 + nx * 0.8,
+            s.y2 + ny * 0.8,
+            b[0] + nx * 1.5,
+            b[1] + ny * 1.5,
+            0.13,
+            DIM,
+          );
+          line(
+            a[0] - s.ux * 1.2,
+            a[1] - s.uy * 1.2,
+            b[0] + s.ux * 1.2,
+            b[1] + s.uy * 1.2,
+            0.18,
+            DIM,
+          );
+          for (const p of [a, b])
+            line(
+              p[0] - (s.ux + nx) * 0.7,
+              p[1] - (s.uy + ny) * 0.7,
+              p[0] + (s.ux + nx) * 0.7,
+              p[1] + (s.uy + ny) * 0.7,
+              0.3,
+              DIM,
+            );
+          const t = textBox(s, side, off + 0.9, wFull);
+          labels.push(t);
+          text(...t.p, label, size, { color: DIM, bold: true, rot: s.ang });
+          return;
+        }
+        // Iguais: só o ID, no lado livre
+        const w = g.id.length * 1.9 * 0.52;
+        const side = textFits(s, 1, 1.2, w)
+          ? 1
+          : textFits(s, -1, 1.2, w)
+            ? -1
+            : 1;
+        const [px, py] = textAt(s, side, 1.2, w);
+        text(px, py, g.id, 1.9, { color: DIM, bold: true, rot: s.ang });
+      });
     }
     if (v.hiddenOmitted)
       text(
@@ -452,6 +706,8 @@ export function buildSheet({
       text(sx, y, s, 2.1, { color: SOFT });
       y += 4.2;
     }
+  } else if (!arcs.length && curves.length) {
+    // Só curvas livres: vão para a tabela de curvas logo abaixo
   } else if (!arcs.length) {
     text(
       sx,
@@ -530,6 +786,86 @@ export function buildSheet({
       "Raio estimado da geometria do modelo: conferir com o projeto.",
       1.7,
       { color: SOFT },
+    );
+    y += 5;
+  }
+
+  // Curvas livres: raio aproximado (melhor círculo) e a faixa de raios locais
+  const limit = PAGE.h - M - 52 - 6;
+  if (!analysis.organic && curves.length && y < limit) {
+    text(sx, y, "CURVAS SEM RAIO ÚNICO", 2.1, { bold: true });
+    y += 4.2;
+    for (const c of curves) {
+      if (y > limit) break;
+      text(sx, y, c.id, 2.2, { bold: true, color: DIM });
+      text(sx + 8, y, `R≈ ${L(c.r)}`, 2.2);
+      text(sx + 24, y, `de ${L(c.rMin)} a ${L(c.rMax)}`, 2.2);
+      text(
+        sx + 54,
+        y,
+        { front: "Frontal", top: "Superior", side: "Lateral" }[c.view],
+        2.2,
+      );
+      y += 3.6;
+      text(
+        sx + 8,
+        y,
+        `corda ${L(c.chord)} · flecha ${L1(c.sagitta)} · comprimento ${L(c.length)}`,
+        1.7,
+        { color: SOFT },
+      );
+      y += 4.2;
+    }
+  }
+  // Chanfros e dobras retas: comprimento até a quina virtual, inclinação e catetos
+  if (chamfers.length && y < limit) {
+    y += 1.5;
+    text(sx, y, "CHANFROS E DOBRAS", 2.3, { bold: true });
+    line(sx, y + 1.5, sx + sw, y + 1.5, 0.15, SOFT);
+    y += 5.5;
+    text(sx, y, "ID", 1.9, { color: SOFT });
+    text(sx + 8, y, "COMPR.", 1.9, { color: SOFT });
+    text(sx + 24, y, "INCLIN.", 1.9, { color: SOFT });
+    text(sx + 39, y, "CATETOS", 1.9, { color: SOFT });
+    text(sx + 60, y, "VISTA", 1.9, { color: SOFT });
+    y += 4.2;
+    for (const c of chamfers) {
+      if (y > limit) break;
+      text(sx, y, c.id, 2.2, { bold: true, color: DIM });
+      text(sx + 8, y, L(c.length), 2.2);
+      text(sx + 24, y, deg1(c.angle), 2.2);
+      text(sx + 39, y, `${L(c.dx)} × ${L(c.dy)}`, 2.2);
+      text(
+        sx + 60,
+        y,
+        { front: "Frontal", top: "Superior", side: "Lateral" }[c.view],
+        2.2,
+      );
+      y += 3.6;
+      const note = [
+        c.count > 1 ? `${c.count} iguais` : "",
+        c.bends?.length
+          ? `dobra ${[...new Set(c.bends.map((b) => Math.round(b)))].map(deg1).join(" e ")}`
+          : "",
+        Math.abs(c.straight - c.length) > 0.005
+          ? `trecho reto ${L(c.straight)} (quina arredondada)`
+          : "",
+      ]
+        .filter(Boolean)
+        .join(" · ");
+      if (note) {
+        text(sx + 8, y, note, 1.7, { color: SOFT });
+        y += 4.2;
+      } else y += 0.6;
+    }
+    text(
+      sx,
+      y + 0.5,
+      "Medidas até a quina virtual (encontro das retas).",
+      1.7,
+      {
+        color: SOFT,
+      },
     );
     y += 5;
   }

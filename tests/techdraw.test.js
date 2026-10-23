@@ -170,3 +170,74 @@ test("caixa de cantos arredondados (estofado): contorno lateral vem da silhueta"
   );
   void THREE;
 });
+
+// Contorno de pórtico: reta vertical, concordância R10 de 45° (4 segmentos) e chanfro a 45°
+function portalCorner() {
+  const r = 0.1;
+  const pts = [[0, 0], ...arc(r, 2.9, r, Math.PI, Math.PI * 0.75, 4)];
+  const end = pts.at(-1);
+  // Chanfro tangente à concordância, subindo a 45° por ~1,33 m
+  pts.push([end[0] + 0.94, end[1] + 0.94]);
+  return pts;
+}
+
+test("linhas repetidas e trechos sobrepostos não quebram a concordância", async () => {
+  const { cleanLines } = await import("../src/lib/techdraw.js");
+  const lines = toLines(portalCorner());
+  // Silhueta da superfície curva por cima de uma corda e linhas duplicadas
+  const [x1, y1, x2, y2] = lines[1];
+  const noisy = [
+    ...lines,
+    ...lines,
+    [x1, y1, x1 + (x2 - x1) * 0.6, y1 + (y2 - y1) * 0.6],
+  ];
+  assert.equal(cleanLines(noisy).length, lines.length);
+  const [a] = detectArcs(noisy);
+  assert.ok(a && close(a.r, 0.1, 1e-4), `raio ${a?.r}`);
+  assert.ok(close(Math.abs(a.sweep), Math.PI / 4, 1e-3));
+});
+
+test("testeira sextavada: quatro chanfros iguais de 50 × 50 a 45°", async () => {
+  const { detectSlopes } = await import("../src/lib/techdraw.js");
+  const hex = [
+    [0.5, 0],
+    [2.5, 0],
+    [3, 0.5],
+    [2.5, 1],
+    [0.5, 1],
+    [0, 0.5],
+    [0.5, 0],
+  ];
+  const [c, ...rest] = detectSlopes(toLines(hex), 3, 1);
+  assert.equal(rest.length, 0);
+  assert.equal(c.count, 4);
+  assert.ok(close(c.length, Math.SQRT2 / 2, 1e-9));
+  assert.ok(close(c.angle, 45, 1e-9));
+  assert.ok(close(c.dx, 0.5, 1e-9) && close(c.dy, 0.5, 1e-9));
+  assert.deepEqual([...new Set(c.bends.map(Math.round))].sort(), [135, 90]);
+});
+
+test("chanfro com canto arredondado é medido até a quina virtual", async () => {
+  const { detectSlopes } = await import("../src/lib/techdraw.js");
+  const lines = toLines(portalCorner());
+  const [c] = detectSlopes(lines, 1.1, 4, detectArcs(lines));
+  // Quina virtual: encontro da vertical x = 0 com a reta do chanfro
+  assert.ok(close(c.x1, 0, 1e-6) || close(c.x2, 0, 1e-6), JSON.stringify(c));
+  assert.ok(c.length > c.straight + 0.01, "inclui o trecho da concordância");
+  assert.ok(close(c.angle, 45, 0.01));
+});
+
+test("curva livre (elipse) traz raio aproximado, faixa de raios, corda e flecha", () => {
+  const pts = [];
+  for (let i = 0; i <= 12; i++) {
+    const a = (Math.PI * i) / 12;
+    pts.push([0.8 * Math.cos(a), 0.3 * Math.sin(a)]);
+  }
+  const found = detectArcs(toLines(pts));
+  assert.equal(found.length, 0);
+  assert.equal(found.free.length, 1);
+  const [c] = found.free;
+  assert.ok(c.rMin < c.rMax, `${c.rMin} ${c.rMax}`);
+  assert.ok(close(c.chord, 1.6, 1e-6));
+  assert.ok(close(c.sagitta, 0.3, 1e-6));
+});
