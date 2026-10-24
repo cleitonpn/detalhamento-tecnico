@@ -141,8 +141,9 @@ export default function Drawings({
                 : "Nenhuma peça validada ainda"}
           </strong>
           <p>
-            Peças sem validação não aparecem aqui. Selecione e valide na etapa
-            anterior as peças que quer detalhar.{" "}
+            Só entra o que o stand constrói: peças sem validação, TV,
+            equipamentos, iluminação de terceiros e itens fora do detalhamento
+            (logos, artes, móveis prontos) não aparecem aqui.{" "}
             {release
               ? `${parts.length} itens (${units} peças) no caderno.`
               : p.pending

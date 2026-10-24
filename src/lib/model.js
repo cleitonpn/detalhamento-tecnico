@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { coletarPecas } from "./vendor/studio/analyze.js";
 import { MAX_FILE_BYTES, MAX_FILE_MB, SCALE } from "../domain/project.js";
-import { fingerprint, surfaceStats } from "./auto/fingerprint.js";
+import { fingerprint, surfaceStats, shapeStats } from "./auto/fingerprint.js";
 
 const plainReview = () => ({
   kind: "unclassified",
@@ -61,7 +61,15 @@ function suggestion(name, dimensions, min) {
   };
 }
 
-function describe(meshes, ids, label, scale, frameNode = meshes[0]) {
+// `light`: malhas avulsas (só usadas ao separar uma peça) não precisam da leitura de forma
+function describe(
+  meshes,
+  ids,
+  label,
+  scale,
+  frameNode = meshes[0],
+  light = false,
+) {
   const box = new THREE.Box3();
   meshes.forEach((o) => {
     if (!o.geometry.boundingBox) o.geometry.computeBoundingBox();
@@ -172,6 +180,8 @@ function describe(meshes, ids, label, scale, frameNode = meshes[0]) {
       tris: surface.tris,
       area: Math.round(surface.area * 1e4) / 1e4,
     },
+    // Leitura da forma: partes soltas, preenchimento das faces (logo, arte, mesa…)
+    ...(light ? {} : { shape: shapeStats(meshes, scale, frame, dimensions) }),
     fingerprint: fingerprint({
       dimensions,
       tris: surface.tris,
@@ -270,7 +280,7 @@ export function partitionScene(scene, sourceUnit = "m") {
   for (const [id, mesh] of meshMap) {
     const originalName = mesh.userData.originalName || mesh.name;
     const label = usefulName(originalName) ? originalName : `Malha ${id}`;
-    meshParts.set(id, describe([mesh], [id], label, scale));
+    meshParts.set(id, describe([mesh], [id], label, scale, mesh, true));
   }
   const parts = groups.map(({ node, meshes }, i) => {
     const originalName = node.userData.originalName || node.name;

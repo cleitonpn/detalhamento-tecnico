@@ -90,7 +90,7 @@ test("regras: parede, testeira, piso, perfil, prateleira, imagem e peça esqueci
   const prateleira = kind("Peça 5");
   assert.equal(prateleira.kind, "other");
   assert.equal(prateleira.materialId, "custo-499");
-  assert.equal(kind("Peça 6").kind, "finish");
+  assert.equal(kind("Peça 6").kind, "ignore"); // arte sem espessura: caderno de arte
   const longe = kind("Garrafa esquecida");
   assert.equal(longe.kind, "ignore");
   assert.match(longe.reasons[0], /Fora da área do stand/);

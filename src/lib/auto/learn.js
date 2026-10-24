@@ -84,6 +84,11 @@ export function sampleOf(part, ctx, project = {}) {
       .join(" ")
       .slice(0, 240),
     small: part.hints?.smallItems ? 1 : 0,
+    parts: part.shape?.parts || 1,
+    main: part.shape?.main ?? 1,
+    front: part.shape?.front ?? 1,
+    top: part.shape?.top ?? 1,
+    tpp: part.shape?.trisPerPart || 12,
     kind: r.kind,
     materialId: r.materialId || "",
     finishId: r.finishId || "",
@@ -122,6 +127,11 @@ export function featuresOf(s) {
     log(s.tris + 1),
     Math.min(s.area / bbox, 10), // complexidade da forma
     s.small,
+    log(s.parts ?? 1), // partes soltas (letras, ícones, ripas)
+    s.main ?? 1, // face principal preenchida
+    s.front ?? 1, // frente fechada (balcão) ou aberta (mesa)
+    s.top ?? 1,
+    log(s.tpp ?? 12), // faces por parte (contorno curvo)
   ];
   const bag = new Array(WORD_BUCKETS).fill(0);
   for (const w of words(s.text)) bag[bucket(w)] = 1;

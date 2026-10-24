@@ -1,4 +1,5 @@
 import { KINDS } from "../../domain/project.js";
+import { isLibraryCode } from "./fingerprint.js";
 
 // Camada 1 — regras geométricas ("o olho do marceneiro").
 // Lê medidas, espessura, altura em relação ao piso, posição no stand, nomes e
@@ -141,6 +142,87 @@ export function classifyPart(part, context) {
       ],
       name: "Produtos expostos",
     };
+  // Leitura da forma: partes soltas, preenchimento das faces, densidade da malha
+  const sh = part.shape;
+  const ignore = (confidence, reason, name) => ({
+    kind: "ignore",
+    materialId: "",
+    finishId: "",
+    confidence,
+    reasons: [reason],
+    name,
+  });
+  if (sh && L >= 0.2) {
+    const pct = (v) => `${Math.round(v * 100)}%`;
+    // Letras ou logo em 3D: várias partes soltas, face pouco preenchida, contornos curvos
+    const mid = [...part.dimensions].sort((p, q) => p - q)[1];
+    // Suporte de produtos: peça longa e estreita com muitos encaixes repetidos
+    if (t <= 0.08 && mid < 0.1 && sh.parts >= 10)
+      return ignore(
+        0.8,
+        `Suporte ou trilho de produtos (${sh.parts} encaixes em ${cm(L)} cm): expositor do cliente, sem detalhamento.`,
+        "Suporte de produtos",
+      );
+    if (
+      t <= 0.08 &&
+      mid >= 0.1 &&
+      sh.parts >= 3 &&
+      sh.main <= 0.55 &&
+      sh.trisPerPart >= 150
+    )
+      return ignore(
+        0.9,
+        `Letras ou logo em 3D (${sh.parts} partes soltas, ${pct(sh.main)} da face preenchida): comunicação visual, sem detalhamento de marcenaria.`,
+        "Logo / letreiro",
+      );
+    // Arte, ícones ou desenho: muitas partes pequenas espalhadas
+    if (sh.parts >= 5 && sh.main <= 0.2)
+      return ignore(
+        0.88,
+        `Arte ou ícones soltos (${sh.parts} partes ocupando ${pct(sh.main)} da área): vai para o caderno de arte.`,
+        "Arte / ícones",
+      );
+    // Mesa: tampo sobre pés, frente aberta, na altura de mesa
+    if (
+      y0 <= 0.2 &&
+      h >= 0.6 &&
+      h <= 0.85 &&
+      Math.min(w, d) >= 0.4 &&
+      sh.front <= 0.4
+    )
+      return ignore(
+        0.88,
+        `Mesa (tampo sobre pés, frente ${pct(sh.front)} fechada): móvel, sem detalhamento.`,
+        "Mesa",
+      );
+    // Estofado ou móvel de biblioteca: malha muito densa no chão
+    const density = part.surface?.area
+      ? part.surface.tris / part.surface.area
+      : 0;
+    if (y0 <= 0.2 && h <= 1.1 && part.surface?.tris >= 5000 && density >= 3000)
+      return ignore(
+        0.86,
+        `Estofado ou móvel de biblioteca (malha muito densa: ${Math.round(density)} faces/m²): sem detalhamento.`,
+        "Estofado",
+      );
+  }
+  // Item de biblioteca (código de catálogo no nome): móvel, decoração ou acessório pronto
+  const code = [part.label, part.hints?.definition].find((n) =>
+    isLibraryCode(n),
+  );
+  if (code)
+    add(
+      "ignore",
+      y0 <= 0.2 && h <= 1.3 ? 0.84 : 0.72,
+      `Item de biblioteca (${code}): móvel, decoração ou acessório pronto, sem detalhamento.`,
+    );
+  // Acessório pequeno (suporte, ponteira, luminária de mesa): não é peça do stand
+  if (L < 0.2 && !NAME.light.test(text) && !NAME.counter?.test?.(name))
+    add(
+      "ignore",
+      0.8,
+      `Acessório de ${cm(L)} cm: pequeno demais para o detalhamento.`,
+    );
   if (/^itens pequenos$/i.test(part.label))
     add("ignore", 0.9, "Conjunto de itens pequenos (produtos expostos).");
   if (NAME.ignore.test(name))
@@ -183,9 +265,9 @@ export function classifyPart(part, context) {
   const surface = t < 0.003;
   if (surface && !(h <= 0.25 && w * d >= 2))
     add(
-      "finish",
-      NAME.finish.test(text) ? 0.85 : 0.64,
-      `Superfície sem espessura de ${cm(w)} × ${cm(Math.max(h, d))} cm: imagem, adesivo ou lona.`,
+      "ignore",
+      0.84,
+      `Superfície sem espessura de ${cm(w)} × ${cm(Math.max(h, d))} cm: arte, imagem ou adesivo (caderno de arte).`,
     );
 
   // Testeira: painel no alto do stand
@@ -254,7 +336,8 @@ export function classifyPart(part, context) {
     y0 <= 0.2 &&
     h >= 0.6 &&
     h <= 1.3 &&
-    Math.max(w, d) >= 0.6
+    Math.max(w, d) >= 0.6 &&
+    (!sh || sh.front >= 0.55)
   )
     add(
       "furniture",
@@ -334,6 +417,31 @@ export function classifyPart(part, context) {
 }
 
 const round = (m) => Math.round(m * 100);
+/**
+ * A sugestão combina com as medidas? Evita absurdos vindos da memória (só medidas)
+ * ou do aprendizado, como "TV" de 14 cm ou "testeira" no chão.
+ */
+export function plausible(kind, part) {
+  const [w, h, d] = part.dimensions;
+  const [t, , L] = [...part.dimensions].sort((a, b) => a - b);
+  switch (kind) {
+    case "equipment":
+      return L >= 0.35;
+    case "fascia":
+      return Math.max(w, d) >= 0.4 && t <= 0.4;
+    case "wall":
+      return h >= 0.8 && Math.max(w, d) >= 0.3;
+    case "floor":
+      return w * d >= 0.5 && h <= 0.4;
+    case "furniture":
+      return L >= 0.3;
+    case "metalon":
+      return L >= 0.15;
+    default:
+      return true;
+  }
+}
+
 /** Nome de trabalho pela leitura: "Testeira 300 × 100", "Prateleira 97 × 27". */
 export function nameFor(kind, reason, [w, h, d]) {
   const sorted = [w, h, d].sort((a, b) => b - a);
