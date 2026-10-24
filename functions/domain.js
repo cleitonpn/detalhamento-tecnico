@@ -434,3 +434,47 @@ export function mergeMemory(old, entry, now = new Date().toISOString()) {
     updatedAt: now,
   };
 }
+
+// ---------- exemplos de treino do aprendizado (camada 3) ----------
+
+export const MAX_SAMPLES_PER_CALL = 500;
+export const MAX_SAMPLES_LISTED = 6000;
+
+/** Exemplos de peças validadas: números finitos, textos curtos, tipo conhecido. */
+export function checkSamples(samples) {
+  if (!Array.isArray(samples) || samples.length > MAX_SAMPLES_PER_CALL)
+    throw Error("Exemplos de treino inválidos.");
+  const num = (v) => {
+    if (!Number.isFinite(v))
+      throw Error("Exemplo de treino com medida inválida.");
+    return Math.round(v * 1e5) / 1e5;
+  };
+  const id = (v) =>
+    typeof v === "string" && /^[a-zA-Z0-9_-]{0,100}$/.test(v) ? v : "";
+  return samples.map((s) => {
+    if (!KINDS[s?.kind] || s.kind === "unclassified")
+      throw Error("Exemplo de treino sem tipo válido.");
+    const key = cleanText(s.key, 200).replace(/\//g, "_");
+    if (!key) throw Error("Exemplo de treino sem chave.");
+    return {
+      key,
+      project: cleanText(s.project, 80),
+      label: cleanText(s.label, 80),
+      w: num(s.w),
+      h: num(s.h),
+      d: num(s.d),
+      y0: num(s.y0),
+      y1: num(s.y1),
+      dist: num(s.dist),
+      standSize: num(s.standSize),
+      tris: Math.max(0, Math.round(num(s.tris))),
+      area: num(s.area),
+      text: cleanText(s.text, 240),
+      small: s.small ? 1 : 0,
+      kind: s.kind,
+      materialId: id(s.materialId),
+      finishId: id(s.finishId),
+      edited: Boolean(s.edited),
+    };
+  });
+}

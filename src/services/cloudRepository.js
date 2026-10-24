@@ -13,6 +13,17 @@ const call = async (name, data = {}) =>
     })
   ).data;
 export const cloudRepository = {
+  async samplesList() {
+    return (await call("dt_samplesList")).samples;
+  },
+  async samplesRecord(samples) {
+    let recorded = 0;
+    for (let i = 0; i < samples.length; i += 500)
+      recorded += (
+        await call("dt_samplesRecord", { samples: samples.slice(i, i + 500) })
+      ).recorded;
+    return { recorded };
+  },
   async memoryLookup(keys) {
     const found = {};
     // Lotes para não estourar o tamanho da chamada

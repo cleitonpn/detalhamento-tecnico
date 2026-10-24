@@ -94,3 +94,43 @@ testeira e piso.
 
 Frascos e produtos, móveis comprados e objetos esquecidos longe do stand ficam fora do
 detalhamento.
+
+## Camada 3: aprendizado com as correções (`learn.js`)
+
+É a "IA proprietária" do Detalha: aprendizado de máquina clássico, sem serviço externo
+nem IA de linguagem.
+
+- **Exemplos de treino:** cada peça validada vira um exemplo com:
+  - medidas (em escala logarítmica);
+  - espessura e esbeltez;
+  - altura do piso e posição relativa no stand;
+  - superfície sem espessura;
+  - complexidade da forma (faces e área);
+  - palavras do nome, do componente, da tag e do material.
+
+  Cópias iguais do mesmo projeto contam uma vez. **Correções** (o humano mudou a
+  sugestão) pesam o dobro.
+- **Onde ficam os exemplos:**
+  - no modo local, no IndexedDB, loja `samples`;
+  - na nuvem, em `dt_workspaces/{id}/samples`, pelas funções `dt_samplesRecord` e
+    `dt_samplesList` (os 6.000 mais recentes).
+- **Modelo:** floresta de 31 árvores de decisão (CART, Gini), treinada no navegador ao
+  abrir um projeto e retreinada em segundo plano depois de cada validação. Com 5.100
+  exemplos, o treino leva cerca de 0,6 s. O **acerto estimado** vem dos exemplos que
+  cada árvore não viu (out-of-bag).
+- **Previsão:** tipo com probabilidade. Material e revestimento vêm dos 5 exemplos mais
+  parecidos do mesmo tipo, e o mais parecido entra na explicação: "Aprendido de 312
+  peças validadas: parecida com 'Testeira 273 × 60' (FAZZUP)".
+- **Combinação com as outras camadas:**
+  - a memória exata vem primeiro;
+  - quando as regras e o modelo concordam, a confiança sobe;
+  - quando discordam, vence o mais confiável e a outra leitura vira aviso para conferir;
+  - com poucos exemplos ou acerto baixo, o modelo pesa menos;
+  - o material medido pela espessura vale mais que o costume aprendido.
+
+**Teste com projetos reais:**
+1. A FAZZUP foi validada, gerando 34 exemplos (peças diferentes).
+2. O MOOVE (DWG, sem nomes nem materiais), que abria com 0 verdes, passou a abrir com
+   12 verdes.
+
+Na peça "Testeira 502 × 95", por exemplo, as regras e o aprendizado concordaram (90%).

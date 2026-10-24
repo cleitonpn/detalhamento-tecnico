@@ -12,6 +12,8 @@ import {
   checkMemoryKeys,
   checkMemoryEntries,
   mergeMemory,
+  checkSamples,
+  MAX_SAMPLES_LISTED,
   MAX_FILE_BYTES,
   MAX_FILE_MB,
   MODEL_FORMATS,
@@ -301,6 +303,26 @@ export const dt_memoryRecord = endpoint(async (req) => {
     });
   }
   return { recorded: entries.length };
+});
+// Exemplos de treino do aprendizado: peças validadas do espaço de trabalho
+export const dt_samplesRecord = endpoint(async (req) => {
+  const { id } = await authorize(req, true);
+  const samples = checkSamples(req.data.samples);
+  const col = db.collection(`dt_workspaces/${id}/samples`);
+  const now = new Date().toISOString();
+  const batch = db.batch();
+  for (const s of samples) batch.set(col.doc(s.key), { ...s, updatedAt: now });
+  await batch.commit();
+  return { recorded: samples.length };
+});
+export const dt_samplesList = endpoint(async (req) => {
+  const { id } = await authorize(req);
+  const list = await db
+    .collection(`dt_workspaces/${id}/samples`)
+    .orderBy("updatedAt", "desc")
+    .limit(MAX_SAMPLES_LISTED)
+    .get();
+  return { samples: list.docs.map((d) => d.data()) };
 });
 export const dt_listProjects = endpoint(async (req) => {
   const { id } = await authorize(req);

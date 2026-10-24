@@ -4,7 +4,8 @@
 import { partIssues, mergeMemory } from "../../domain/project.js";
 
 export { mergeMemory };
-import { classifyPart, standContext } from "./rules.js";
+import { classifyPart, standContext, nameFor } from "./rules.js";
+import { predict, sampleOf } from "./learn.js";
 import { nameKey } from "./fingerprint.js";
 
 // A sugestão foi aceita sem mudança?
@@ -35,7 +36,12 @@ export function memoryKeys(parts) {
  * chave → { kind, materialId, finishId, n, conflict } com decisões humanas
  * anteriores; `catalog` são os materiais do projeto.
  */
-export function autoReview(parts, memory = new Map(), catalog = []) {
+export function autoReview(
+  parts,
+  memory = new Map(),
+  catalog = [],
+  { model = null } = {},
+) {
   const ctx = standContext(parts);
   const known = new Set(catalog.map((m) => m.id));
   const valid = (id) => (id && (!known.size || known.has(id)) ? id : "");
@@ -74,6 +80,7 @@ export function autoReview(parts, memory = new Map(), catalog = []) {
         };
       else if (size && rule.confidence < size.confidence) auto = size;
       else auto = rule;
+      if (model) auto = withLearning(auto, part, ctx, model, valid);
     }
     auto.confidence = Math.max(
       0,
@@ -112,6 +119,67 @@ export function autoReview(parts, memory = new Map(), catalog = []) {
 }
 
 /**
+ * Camada 3: combina a sugestão das regras (ou da pista de medidas) com o modelo
+ * treinado nas validações do espaço. Concordando, a confiança sobe; discordando,
+ * vence o mais confiável e a outra leitura vira um aviso para conferir.
+ */
+function withLearning(current, part, ctx, model, valid) {
+  const pred = predict(model, sampleOf(part, ctx));
+  if (!pred) return current;
+  // Poucos exemplos ou acerto estimado baixo: o modelo pesa menos
+  const trust = Math.min(1, model.size / 150);
+  const quality = Math.min(1, (model.accuracy ?? 0.7) + 0.15);
+  const p = pred.probability * (0.7 + 0.3 * trust) * quality;
+  const near = pred.nearest
+    ? `: parecida com "${pred.nearest.label}"${pred.nearest.project ? ` (${pred.nearest.project})` : ""}`
+    : "";
+  const reason = `Aprendido de ${model.size} peças validadas${near}.`;
+  const learnedMaterial = valid(pred.materialId),
+    learnedFinish = valid(pred.finishId);
+  if (pred.kind === current.kind)
+    return {
+      ...current,
+      // Material e revestimento que a equipe costuma usar nesse tipo de peça
+      // A espessura medida no modelo vale mais que o costume aprendido
+      materialId: current.materialMeasured
+        ? current.materialId
+        : learnedMaterial || current.materialId,
+      finishId: learnedFinish || current.finishId,
+      confidence: Math.min(0.97, 1 - (1 - current.confidence) * (1 - p)),
+      source: current.source === "rules" ? "rules+learning" : current.source,
+      reasons: [current.reasons[0], reason, ...current.reasons.slice(1)].slice(
+        0,
+        3,
+      ),
+    };
+  if (p > current.confidence + 0.05)
+    return {
+      kind: pred.kind,
+      materialId: learnedMaterial,
+      finishId: learnedFinish,
+      confidence: p * 0.95,
+      source: "learning",
+      reasons: [
+        reason,
+        current.kind !== "unclassified"
+          ? `As regras sugeriam outro tipo (${current.reasons[0]}): confira.`
+          : "Nenhuma regra reconheceu a peça; a sugestão vem do aprendizado.",
+      ],
+      name: nameFor(pred.kind, "", part.dimensions),
+    };
+  if (p >= 0.5)
+    return {
+      ...current,
+      confidence: current.confidence * 0.85,
+      reasons: [
+        ...current.reasons.slice(0, 2),
+        `O aprendizado sugere outro tipo (${Math.round(p * 100)}%): confira.`,
+      ],
+    };
+  return current;
+}
+
+/**
  * Aceita em lote as peças verdes que ainda estão como o sistema sugeriu:
  * confirma as medidas e valida. Devolve o projeto e quantas foram aceitas.
  */
@@ -146,10 +214,13 @@ export function projectMemory(parts, base = new Map()) {
 }
 
 /** Recalcula as sugestões do projeto com a memória (do espaço + do próprio projeto). */
+export { sampleOf };
+
 export function refreshAuto(
   project,
   memory = new Map(),
   catalog = project.materials,
+  options = {},
 ) {
   return {
     ...project,
@@ -157,8 +228,20 @@ export function refreshAuto(
       project.parts,
       projectMemory(project.parts, memory),
       catalog,
+      options,
     ),
   };
+}
+
+/**
+ * Exemplos de treino das peças recém-validadas: um por peça diferente (cópias
+ * iguais do mesmo projeto contam uma vez, para não viciar o modelo).
+ */
+export function trainingSamples(project, parts) {
+  const ctx = standContext(project.parts);
+  return groupIdentical(parts.filter((p) => p.review?.confirmed)).map((g) =>
+    sampleOf(g.part, ctx, project),
+  );
 }
 
 /** Decisões humanas para gravar na memória (só peças validadas). */

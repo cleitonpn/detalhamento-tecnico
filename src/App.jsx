@@ -62,7 +62,9 @@ import {
   memoryKeys,
   mergeMemory,
   refreshAuto,
+  trainingSamples,
 } from "./lib/auto/index.js";
+import { trainModel } from "./lib/auto/learn.js";
 import { cloudRepository } from "./services/cloudRepository.js";
 import {
   applyStudioSource,
@@ -108,7 +110,11 @@ export default function App() {
     queue = useRef(Promise.resolve()),
     versions = useRef({}),
     // Memória de decisões (impressão digital -> decisão humana) do espaço de trabalho
-    memory = useRef(new Map());
+    memory = useRef(new Map()),
+    // Camada 3: exemplos do espaço (chave -> exemplo) e o modelo treinado com eles
+    samples = useRef(new Map()),
+    model = useRef(null),
+    retrain = useRef(0);
   const currentScene = useRef(null),
     requestId = useRef(0);
   const repository = cloudMode ? cloudRepository : localRepository;
@@ -221,12 +227,29 @@ export default function App() {
       memory.current.set(e.key, mergeMemory(memory.current.get(e.key), e));
     edit({
       ...next,
-      parts: autoReview(next.parts, memory.current, next.materials),
+      parts: autoReview(next.parts, memory.current, next.materials, {
+        model: model.current,
+      }),
     });
     if (entries.length)
       repository
         .memoryRecord(entries)
         .catch((e) => console.warn("Não foi possível gravar na memória:", e));
+    // Camada 3: cada validação vira exemplo de treino; o modelo é retreinado em
+    // segundo plano e passa a valer nas próximas sugestões
+    const fresh2 = trainingSamples(next, fresh);
+    if (fresh2.length) {
+      for (const s of fresh2) samples.current.set(s.key, s);
+      repository
+        .samplesRecord(fresh2)
+        .catch((e) =>
+          console.warn("Não foi possível gravar o aprendizado:", e),
+        );
+      clearTimeout(retrain.current);
+      retrain.current = setTimeout(() => {
+        model.current = trainModel([...samples.current.values()]);
+      }, 1500);
+    }
     return fresh.length;
   }
   // Item da lista com peças iguais: seleciona todas as cópias juntas
@@ -334,7 +357,24 @@ export default function App() {
       } catch (e) {
         console.warn("Memória de peças indisponível:", e);
       }
-      const next = refreshAuto(base, known);
+      // Camada 3: modelo próprio treinado com as peças já validadas no espaço
+      try {
+        const timeoutSamples = new Promise((_, reject) =>
+          setTimeout(() => reject(Error("tempo esgotado")), 8000),
+        );
+        const list = await Promise.race([
+          repository.samplesList(),
+          timeoutSamples,
+        ]);
+        samples.current = new Map(list.map((s) => [s.key, s]));
+        model.current = trainModel([...samples.current.values()]);
+      } catch (e) {
+        console.warn("Aprendizado indisponível:", e);
+        model.current = null;
+      }
+      const next = refreshAuto(base, known, base.materials, {
+        model: model.current,
+      });
       checkProject(next);
       if (token !== requestId.current) {
         disposeModel(nextScene);
@@ -386,7 +426,10 @@ export default function App() {
         );
       if (!restored) {
         const st = autoStats(next);
-        const summary = `Reconhecimento automático: ${st.green} peça(s) prontas para aceitar, ${st.yellow} para conferir e ${st.red} para decidir.`;
+        const learned = model.current
+          ? ` Aprendizado: modelo treinado com ${model.current.size} peças validadas${model.current.accuracy != null ? ` (acerto estimado ${Math.round(model.current.accuracy * 100)}%)` : ""}.`
+          : "";
+        const summary = `Reconhecimento automático: ${st.green} peça(s) prontas para aceitar, ${st.yellow} para conferir e ${st.red} para decidir.${learned}`;
         setNotice((current) => (current ? `${current} ${summary}` : summary));
       }
     } catch (e) {
@@ -774,6 +817,13 @@ export default function App() {
                   ? `${p.pending} peças para conferir`
                   : "Todas as peças foram conferidas"}
               </p>
+              {model.current && (
+                <p className="helper">
+                  Aprendizado: {model.current.size} peças validadas
+                  {model.current.accuracy != null &&
+                    ` · acerto estimado ${Math.round(model.current.accuracy * 100)}%`}
+                </p>
+              )}
               {(() => {
                 const st = autoStats(project);
                 return st.rate === null ? null : (

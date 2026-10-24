@@ -101,8 +101,14 @@ export default function Inspector({
                       red: "Precisa de decisão",
                     }[first.auto.level]
                   }{" "}
-                  · {first.auto.source === "memory" ? "memória" : "regras"} ·{" "}
-                  {Math.round(first.auto.confidence * 100)}%
+                  ·{" "}
+                  {{
+                    memory: "memória",
+                    rules: "regras",
+                    learning: "aprendizado",
+                    "rules+learning": "regras + aprendizado",
+                  }[first.auto.source] || "regras"}{" "}
+                  · {Math.round(first.auto.confidence * 100)}%
                 </span>
                 <strong>
                   {KINDS[first.auto.kind] || "A classificar"}

@@ -1,10 +1,15 @@
-import { checkMemoryEntries, mergeMemory } from "../domain/project.js";
+import {
+  checkMemoryEntries,
+  checkSamples,
+  mergeMemory,
+  MAX_SAMPLES_LISTED,
+} from "../domain/project.js";
 
 let connection;
 function database() {
   if (!connection)
     connection = new Promise((resolve, reject) => {
-      const request = indexedDB.open("detalha-workspace", 2);
+      const request = indexedDB.open("detalha-workspace", 3);
       request.onupgradeneeded = () => {
         const db = request.result;
         const store = (name, options) => {
@@ -16,6 +21,8 @@ function database() {
         store("releases");
         // Memória de decisões: impressão digital da peça -> decisão humana
         store("memory");
+        // Exemplos de treino do aprendizado (peças validadas)
+        store("samples");
       };
       request.onsuccess = () => {
         const db = request.result;
@@ -62,17 +69,45 @@ async function request(store, mode, run) {
   });
 }
 // Várias leituras ou gravações numa transação só (milhares de chaves por projeto)
-async function many(mode, run) {
+async function many(mode, run, name = "memory") {
   const db = await database();
   return new Promise((resolve, reject) => {
-    const tx = db.transaction("memory", mode);
-    const result = run(tx.objectStore("memory"));
+    const tx = db.transaction(name, mode);
+    const result = run(tx.objectStore(name));
     tx.oncomplete = () => resolve(result);
     tx.onerror = tx.onabort = () =>
       reject(Error("Não foi possível usar a memória deste navegador."));
   });
 }
 export const localRepository = {
+  /** Exemplos de treino do espaço (os mais recentes primeiro). */
+  async samplesList() {
+    let list = [];
+    await many(
+      "readonly",
+      (store) => {
+        const r = store.getAll();
+        r.onsuccess = () => {
+          list = r.result || [];
+        };
+      },
+      "samples",
+    );
+    return list
+      .sort((a, b) => (b.updatedAt || "").localeCompare(a.updatedAt || ""))
+      .slice(0, MAX_SAMPLES_LISTED);
+  },
+  async samplesRecord(samples) {
+    const valid = checkSamples(samples);
+    const now = new Date().toISOString();
+    await many(
+      "readwrite",
+      (store) =>
+        valid.forEach((s) => store.put({ ...s, updatedAt: now }, s.key)),
+      "samples",
+    );
+    return { recorded: valid.length };
+  },
   /** Decisões já tomadas para estas impressões digitais: { chave: decisão }. */
   async memoryLookup(keys) {
     const found = {};

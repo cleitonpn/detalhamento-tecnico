@@ -155,3 +155,32 @@ test("peças vão compactadas para o Firestore: levantamento grande cabe no docu
     [0, 0, 1],
   ]);
 });
+
+test("exemplos de treino: só números finitos, tipo válido e textos curtos", async () => {
+  const { checkSamples } = await import("../domain.js");
+  const ok = {
+    key: "proj|0123456789abc",
+    label: "Testeira 300 × 100",
+    w: 3,
+    h: 1,
+    d: 0.03,
+    y0: 3.4,
+    y1: 4.4,
+    dist: 2,
+    standSize: 6,
+    tris: 12,
+    area: 6.2,
+    text: "x".repeat(500),
+    kind: "fascia",
+    materialId: "custo-499",
+    finishId: "",
+    edited: true,
+  };
+  const [s] = checkSamples([ok]);
+  assert.equal(s.text.length, 240);
+  assert.equal(s.small, 0);
+  assert.throws(() => checkSamples([{ ...ok, w: Infinity }]), /medida inválida/);
+  assert.throws(() => checkSamples([{ ...ok, kind: "unclassified" }]), /tipo válido/);
+  assert.equal(checkSamples([{ ...ok, key: "a/b" }])[0].key, "a_b");
+  assert.equal(checkSamples([{ ...ok, materialId: "a b" }])[0].materialId, "");
+});

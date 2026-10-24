@@ -168,6 +168,10 @@ function describe(meshes, ids, label, scale, frameNode = meshes[0]) {
       axes: frame.axes.map((a) => a.map(unit)),
     },
     ...(hints ? { hints } : {}),
+    surface: {
+      tris: surface.tris,
+      area: Math.round(surface.area * 1e4) / 1e4,
+    },
     fingerprint: fingerprint({
       dimensions,
       tris: surface.tris,

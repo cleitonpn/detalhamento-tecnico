@@ -83,11 +83,19 @@ export function standContext(parts) {
   const ys = inside.map((p) => p.bounds.min[1]).sort((a, b) => a - b);
   // Piso: o nível mais baixo, ignorando 2% de pontos soltos abaixo dele
   const floorY = ys.length ? ys[Math.floor(ys.length * 0.02)] : 0;
+  const spread = inside
+    .map((p) => dist[parts.indexOf(p)])
+    .sort((a, b) => a - b);
   return {
     center: [mx, mz],
     outliers,
     distance: new Map(parts.map((p, i) => [p.id, dist[i]])),
     floorY,
+    // Raio que contém 90% das peças do stand
+    size: Math.max(
+      3,
+      spread.length ? spread[Math.floor(spread.length * 0.9)] : 3,
+    ),
   };
 }
 
@@ -309,13 +317,8 @@ export function classifyPart(part, context) {
       `Também pode ser ${KINDS[rival.kind].toLowerCase()}: confira.`,
     );
   }
-  const { materialId, finishId, materialConfidence, note } = materials(
-    best.kind,
-    t,
-    h,
-    part,
-    visual,
-  );
+  const { materialId, finishId, materialConfidence, note, measured } =
+    materials(best.kind, t, h, part, visual);
   if (note) reasons.push(note);
   confidence = Math.min(confidence, materialConfidence);
   return {
@@ -324,6 +327,8 @@ export function classifyPart(part, context) {
     finishId,
     confidence: Math.round(confidence * 100) / 100,
     reasons: reasons.slice(0, 3),
+    // Material lido da espessura do modelo (não é palpite)
+    materialMeasured: Boolean(measured),
     name: nameFor(best.kind, best.reason, part.dimensions),
   };
 }
@@ -399,6 +404,7 @@ function materials(kind, t, h, part, visual) {
         materialId: sheet[1],
         finishId,
         materialConfidence: gap <= 1.2 ? 0.9 : 0.8,
+        measured: true,
         note: `Chapa de ${sheet[0]} mm pela espessura do modelo (${cm(t)} cm).`,
       };
     // Parede/testeira em caixa (estrutura + fechamento): MDF 15 mm é o padrão do stand;
