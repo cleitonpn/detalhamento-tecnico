@@ -6,7 +6,7 @@ export const KINDS = {
   wall: "Parede de madeira",
   fascia: "Testeira",
   finish: "Revestimento",
-  furniture: "Mobiliário / balcão",
+  furniture: "Balcão / marcenaria",
   floor: "Piso",
   equipment: "TV / equipamento",
   light: "Iluminação",

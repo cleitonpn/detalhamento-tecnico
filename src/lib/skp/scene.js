@@ -146,6 +146,9 @@ export class SkpSceneBuilder {
     const groups = node.children.filter((c) => !c.isMesh);
     if (info.named || !s.big || !groups.length) {
       node.userData.dtPart = true;
+      // Só itens pequenos dentro (fileira de frascos, produtos numa prateleira):
+      // conjunto de produtos expostos, não peça de marcenaria
+      if (!info.named && !s.big && groups.length) this.cluster(node);
       // Componente comprado ou conjunto de itens pequenos: não se divide depois
       if (groups.length) this.flatten(node);
       return;
@@ -157,10 +160,26 @@ export class SkpSceneBuilder {
     const small = groups.filter(
       (c) => !this.sizes.get(c).big && this.sizes.get(c).size < SMALL,
     );
-    if (small.length > 1)
-      this.flatten(this.wrap(node, small, "Itens pequenos", "Itens pequenos"));
+    if (small.length > 1) {
+      const g = this.wrap(node, small, "Itens pequenos", "Itens pequenos");
+      this.cluster(g);
+      this.flatten(g);
+    }
     for (const child of groups)
       if (!small.includes(child) || small.length === 1) this.mark(child);
+  }
+
+  // Marca um conjunto de itens pequenos e conta quantos itens tem
+  cluster(node) {
+    let items = 0;
+    node.traverse((o) => {
+      if (o !== node && !o.isMesh && o.children.some((c) => c.isMesh)) items++;
+    });
+    node.userData.skpCluster = Math.max(items, 1);
+    if (!node.userData.originalName) {
+      node.name = "Itens pequenos";
+      node.userData.originalName = "Itens pequenos";
+    }
   }
 
   /**

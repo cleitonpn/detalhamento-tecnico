@@ -145,9 +145,16 @@ function describe(meshes, ids, label, scale, frameNode = meshes[0]) {
     unit = (v) => Math.round(v * 1e7) / 1e7;
   // Pistas do arquivo de origem (SketchUp: tag e nome do componente) e impressão digital
   const skp = frameNode?.userData?.skp;
-  const hints = skp
-    ? { tag: skp.tag || "", definition: skp.definition || "" }
-    : null;
+  // Conjunto só de itens pequenos (produtos expostos), marcado pelo leitor do SketchUp
+  const cluster = frameNode?.userData?.skpCluster || 0;
+  const hints =
+    skp || cluster
+      ? {
+          tag: skp?.tag || "",
+          definition: skp?.definition || "",
+          ...(cluster ? { smallItems: cluster } : {}),
+        }
+      : null;
   const surface = surfaceStats(meshes, scale);
   return {
     id: `part-${ids[0].replaceAll("/", "-")}`,

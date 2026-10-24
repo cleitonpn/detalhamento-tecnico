@@ -27,13 +27,27 @@ uma nota de confiança (0 a 1) e até 3 motivos.
 | Metalon | perfil de seção ≤ 10 cm, comprimento ≥ 6× a seção |
 | Prateleira/tampo, lateral | chapa horizontal acima do chão; chapa vertical baixa |
 | Revestimento | superfície sem espessura (imagem, adesivo, lona) |
-| TV, iluminação, mobiliário | nome, ou proporção 16:9 / peça pequena no alto / volume no chão |
+| TV, iluminação | nome, ou proporção 16:9 / peça pequena no alto |
+| Balcão (com detalhamento) | nome (balcão, bancada, recepção) ou volume no chão na altura de balcão |
+| Expositor, nicho, vitrine | marcenaria sob medida, com detalhamento a conferir |
+| Móveis locados/comprados e decoração (sem detalhamento) | banqueta, mesa, cadeira, pufe, sofá, estante; produtos e frascos do cliente |
+| Produtos expostos | no SketchUp, grupo feito só de itens pequenos repetidos (fileira de frascos) |
 
 **Material de construção:** sai da espessura. Uma chapa a até 1,2 mm de uma espessura
 do catálogo (4, 6, 9, 10, 15, 18 mm) é essa chapa; até 2,5 mm, é o arredondamento do
 modelo. Peças em caixa, como paredes de 10 cm, ficam com MDF 15 mm, a conferir.
 
 **Revestimento:** sai do nome do material visual (Bagum, carpete, Decorflex, Lycra).
+
+**Nome de trabalho:** a peça com nome automático ("Peça 219", "Agrupar#12") ganha um
+nome que diz o que ela é: "Testeira 300 × 100", "Prateleira 97 × 27", "Parede 107 × 440",
+"Balcão 120 × 100 × 120". Quando a decisão vem da memória, volta o nome dado pelo humano.
+
+**Peças iguais unificadas:** peças com a mesma impressão digital exata e a mesma decisão
+aparecem assim:
+- **na lista:** um item só, com a quantidade (×180). Clicar seleciona todas as cópias,
+  e o painel as trata como uma peça só;
+- **no caderno:** uma folha, com "Quantidade: N peças iguais", e um número na vista geral.
 
 ## Camada 2: impressão digital e memória (`fingerprint.js`, `index.js`)
 
@@ -68,13 +82,15 @@ a taxa de **sugestões aceitas sem mudança**, a métrica para chegar aos 80%.
 
 ## Resultado no projeto FAZZUP (SketchUp, 499 peças)
 
-| Situação | Verdes | Amarelas | Vermelhas |
-|---|---|---|---|
-| Só regras, 1ª vez | 191 | 285 | 23 |
-| Depois de 3 ações humanas | 371 validadas (74%) | | |
-| Mesmo stand aberto de novo (memória) | 371 já ao abrir | | |
+| | |
+|---|---|
+| Ao abrir, só com as regras | 201 verdes, 275 amarelas, 23 vermelhas |
+| Itens na lista (peças iguais unificadas) | 59 (6 fora do detalhamento) |
+| Depois de **5 ações humanas** | **417 de 499 validadas (84%)** |
+| Folhas no caderno | 12 itens: paredes, testeiras, piso, prateleiras ×33, trilho ×180… |
 
-As 3 ações humanas foram:
-1. aceitar as verdes;
-2. validar 1 cantoneira, o que propagou para 179 iguais;
-3. aceitar de novo.
+As 5 ações humanas foram aceitar as verdes e validar 4 itens: prateleiras, trilho,
+testeira e piso.
+
+Frascos e produtos, móveis comprados e objetos esquecidos longe do stand ficam fora do
+detalhamento.

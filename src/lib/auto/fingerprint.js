@@ -36,7 +36,13 @@ export function nameKey(name) {
     .replace(/[_#]+/g, " ")
     .replace(/\s+/g, " ")
     .trim();
-  if (!n || GENERIC.test(n)) return "";
+  // Também "Shape Bender Component#1", "Grupo207": nome automático no fim
+  if (
+    !n ||
+    GENERIC.test(n) ||
+    /(?:^|\s)(?:componente|component|agrupar|grupo|group)\s*\d*$/.test(n)
+  )
+    return "";
   // Sufixos de cópia ("balcão 2", "testeira#3", "banqueta (1)") não mudam o objeto
   return n.replace(/(?:\s*\(\d+\)|\s+\d+)$/, "").trim();
 }

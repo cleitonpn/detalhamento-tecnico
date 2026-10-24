@@ -692,6 +692,13 @@ export function buildSheet({
   y += 6.5;
   const [W, H, D] = part.dimensions;
   text(sx, y, `L ${L(W)} × A ${L(H)} × P ${L(D)} ${unit}`, 2.8);
+  if (part.quantity > 1) {
+    y += 5;
+    text(sx, y, `Quantidade: ${part.quantity} peças iguais`, 2.8, {
+      bold: true,
+      color: DIM,
+    });
+  }
   y += 9;
   text(sx, y, "RAIOS", 2.3, { bold: true });
   line(sx, y + 1.5, sx + sw, y + 1.5, 0.15, SOFT);
@@ -1046,7 +1053,12 @@ export function buildOverview({
       bold: true,
       color: ACCENT,
     });
-    text(sx + 7, y, p.label.slice(0, 26), 2.1);
+    text(
+      sx + 7,
+      y,
+      `${p.label.slice(0, 22)}${p.quantity > 1 ? ` ×${p.quantity}` : ""}`,
+      2.1,
+    );
     const [W, H, D] = p.dimensions;
     text(sx + sw, y, `${L(W)}×${L(H)}×${L(D)}`, 1.8, {
       anchor: "end",

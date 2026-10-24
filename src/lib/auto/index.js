@@ -5,6 +5,7 @@ import { partIssues, mergeMemory } from "../../domain/project.js";
 
 export { mergeMemory };
 import { classifyPart, standContext } from "./rules.js";
+import { nameKey } from "./fingerprint.js";
 
 // A sugestão foi aceita sem mudança?
 const sameAsAuto = (p) =>
@@ -52,6 +53,7 @@ export function autoReview(parts, memory = new Map(), catalog = []) {
         confidence: m.conflict ? confidence - 0.25 : confidence,
         source: "memory",
         reasons: [`${reason}${m.n > 1 ? ` (${m.n} vezes)` : ""}.`],
+        name: nameKey(m.label) ? m.label : "",
       };
     };
     const rule = { ...classifyPart(part, ctx), source: "rules" };
@@ -94,8 +96,14 @@ export function autoReview(parts, memory = new Map(), catalog = []) {
             finishId: auto.finishId || "",
           }
         : r;
+    // Nome de trabalho no lugar de "Peça 219": só se o nome ainda é automático
+    const autoLabel =
+      !nameKey(part.label) ||
+      (part.auto?.name && part.label === part.auto.name);
+    const label = autoLabel && auto.name ? auto.name : part.label;
     return {
       ...part,
+      label,
       auto,
       suggestion: { kind: auto.kind, reason: auto.reasons[0] },
       review,
@@ -169,6 +177,27 @@ export function memoryEntries(parts) {
         });
   }
   return out;
+}
+
+/**
+ * Peças idênticas (mesma impressão digital exata e a mesma decisão) viram um item
+ * só, com quantidade: uma linha na lista, uma folha no caderno.
+ */
+export function groupIdentical(parts) {
+  const groups = new Map();
+  for (const p of parts) {
+    const r = p.review || {};
+    const key = p.fingerprint?.exact
+      ? `${p.fingerprint.exact}|${r.confirmed ? 1 : 0}|${r.kind}|${r.materialId}|${r.finishId}`
+      : p.id;
+    if (!groups.has(key)) groups.set(key, { key, part: p, parts: [] });
+    groups.get(key).parts.push(p);
+  }
+  return [...groups.values()].map((g) => ({
+    ...g,
+    ids: g.parts.map((p) => p.id),
+    quantity: g.parts.length,
+  }));
 }
 
 /** Semáforo e taxa de acerto: quantas sugestões o humano aceitou sem mudar. */

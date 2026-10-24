@@ -38,6 +38,11 @@ export default function Inspector({
     );
   const first = parts[0],
     multiple = parts.length > 1;
+  // Cópias da mesma peça (mesma impressão digital): o painel trata como uma só
+  const identical =
+    multiple &&
+    !!first.fingerprint?.exact &&
+    parts.every((p) => p.fingerprint?.exact === first.fingerprint.exact);
   const same = (key) =>
     parts.every((p) => p.review[key] === first.review[key])
       ? first.review[key]
@@ -56,11 +61,15 @@ export default function Inspector({
       <div className="panel-heading">
         <Layers size={17} />
         <h2>
-          {multiple ? `${parts.length} peças selecionadas` : "Validar uma peça"}
+          {identical
+            ? `${parts.length} peças iguais`
+            : multiple
+              ? `${parts.length} peças selecionadas`
+              : "Validar uma peça"}
         </h2>
       </div>
       <div className="inspector-content">
-        {!multiple && (
+        {(!multiple || identical) && (
           <>
             <label className="field-label" htmlFor="part-name">
               Nome da peça

@@ -27,8 +27,13 @@ const NAME = {
   wall: /\b(parede|wall|painel|divisoria|fechamento|backdrop|biombo)\b/,
   metalon:
     /\b(metalon|perfil|tubo|estrutura metalica|treli|box truss|aco carbono|cantoneira)\b/,
-  furniture:
-    /\b(balcao|mesa|cadeira|banqueta|puff|pufe|poltrona|sofa|estante|armario|banco|rack|aparador|vitrine|expositor|gondola|nicho|prateleira|bistro|counter|table|chair|stool|shelf|cabinet)\b/,
+  // Balcão é construído pelo stand: tem detalhamento
+  counter: /\b(balcao|balcoes|bancada|counter|recepcao|caixa de atendimento)\b/,
+  // Marcenaria sob medida comum em stand: detalhar, a conferir
+  joinery: /\b(vitrine|expositor|gondola|nicho|display|totem)\b/,
+  // Móveis locados ou comprados (e decoração): sem detalhamento
+  movable:
+    /\b(mesa|cadeira|banqueta|puff|pufe|poltrona|sofa|estante|armario|banco|rack|aparador|bistro|table|chair|stool|cabinet|ottoman|lounge|namoradeira|chaise)\b/,
   finish:
     /\b(adesivo|lona|plotagem|vinil|impressao|envelopamento|lycra|tecido)\b/,
 };
@@ -115,6 +120,18 @@ export function classifyPart(part, context) {
       reasons: [
         `Fora da área do stand (a ${Math.round(context.distance.get(part.id))} m).`,
       ],
+      name: "",
+    };
+  if (part.hints?.smallItems)
+    return {
+      kind: "ignore",
+      materialId: "",
+      finishId: "",
+      confidence: 0.9,
+      reasons: [
+        `Conjunto de ${part.hints.smallItems} itens pequenos repetidos: produtos expostos, não marcenaria.`,
+      ],
+      name: "Produtos expostos",
     };
   if (/^itens pequenos$/i.test(part.label))
     add("ignore", 0.9, "Conjunto de itens pequenos (produtos expostos).");
@@ -167,7 +184,7 @@ export function classifyPart(part, context) {
   if (!surface && y0 >= 2.0 && h >= 0.15 && h <= 1.6 && w >= 0.6 && t <= 0.35)
     add(
       "fascia",
-      NAME.fascia.test(name) ? 0.95 : 0.84,
+      NAME.fascia.test(name) ? 0.95 : w / h >= 1.5 ? 0.88 : 0.8,
       `Painel de ${cm(w)} × ${cm(h)} cm a ${cm(y0)} cm do chão.`,
     );
   else if (NAME.fascia.test(name)) add("fascia", 0.8, "Nome indica testeira.");
@@ -182,7 +199,11 @@ export function classifyPart(part, context) {
   )
     add(
       "wall",
-      (t <= 0.06 && h >= 1.8 ? 0.84 : 0.76) + (NAME.wall.test(name) ? 0.08 : 0),
+      Math.min(
+        0.97,
+        (h >= 2 ? 0.88 : t <= 0.06 && h >= 1.8 ? 0.84 : 0.76) +
+          (NAME.wall.test(name) ? 0.08 : 0),
+      ),
       `Painel vertical de ${cm(h)} cm de altura e ${cm(t)} cm de espessura.`,
     );
   else if (NAME.wall.test(name) && h >= 0.6)
@@ -204,14 +225,33 @@ export function classifyPart(part, context) {
       `Perfil de ${cm(profile[0])} × ${cm(profile[1])} cm com ${cm(L)} cm de comprimento.`,
     );
 
-  // Mobiliário
-  if (NAME.furniture.test(name))
-    add("furniture", 0.88, "Nome indica mobiliário.");
-  else if (t >= 0.25 && y0 <= 0.2 && h >= 0.35 && h <= 1.3)
+  // Mobiliário: só o balcão (e marcenaria sob medida) tem detalhamento; móveis
+  // locados ou comprados e decoração do cliente ficam fora
+  if (NAME.counter.test(name))
+    add("furniture", 0.92, "Nome indica balcão: construído pelo stand.");
+  else if (NAME.movable.test(name))
+    add(
+      "ignore",
+      0.9,
+      "Móvel locado ou comprado (banqueta, mesa, estante…): sem detalhamento.",
+    );
+  else if (NAME.joinery.test(name))
     add(
       "furniture",
-      0.6,
-      `Volume de ${cm(w)} × ${cm(h)} × ${cm(d)} cm no chão: parece móvel.`,
+      0.72,
+      "Nome indica marcenaria sob medida (expositor, nicho): confira.",
+    );
+  else if (
+    t >= 0.25 &&
+    y0 <= 0.2 &&
+    h >= 0.6 &&
+    h <= 1.3 &&
+    Math.max(w, d) >= 0.6
+  )
+    add(
+      "furniture",
+      0.66,
+      `Volume de ${cm(w)} × ${cm(h)} × ${cm(d)} cm no chão, na altura de balcão: confira.`,
     );
 
   // Conjunto de paredes (L, U) modelado como um grupo só
@@ -232,7 +272,7 @@ export function classifyPart(part, context) {
   if (h <= 0.06 && w >= 0.2 && d >= 0.2 && y0 > 0.15)
     add(
       "other",
-      NAME.furniture.test(name) ? 0.6 : 0.74,
+      NAME.movable.test(name) ? 0.6 : 0.74,
       `Chapa horizontal de ${cm(w)} × ${cm(d)} cm (prateleira ou tampo).`,
     );
   // Chapa vertical baixa: lateral, frente ou fechamento de móvel
@@ -284,7 +324,37 @@ export function classifyPart(part, context) {
     finishId,
     confidence: Math.round(confidence * 100) / 100,
     reasons: reasons.slice(0, 3),
+    name: nameFor(best.kind, best.reason, part.dimensions),
   };
+}
+
+const round = (m) => Math.round(m * 100);
+/** Nome de trabalho pela leitura: "Testeira 300 × 100", "Prateleira 97 × 27". */
+export function nameFor(kind, reason, [w, h, d]) {
+  const sorted = [w, h, d].sort((a, b) => b - a);
+  const two = (a, b) => `${round(a)} × ${round(b)}`;
+  if (kind === "floor") return `Piso ${two(w, d)}`;
+  if (kind === "fascia") return `Testeira ${two(w, h)}`;
+  if (kind === "wall")
+    return /grupo de paredes/.test(reason)
+      ? `Conjunto de paredes ${two(w, h)}`
+      : `Parede ${two(Math.max(w, d), h)}`;
+  if (kind === "metalon") return `Metalon ${round(sorted[0])}`;
+  if (kind === "finish") return `Revestimento ${two(sorted[0], sorted[1])}`;
+  if (kind === "equipment") return `TV ${two(w, h)}`;
+  if (kind === "light") return "Iluminação";
+  if (kind === "furniture")
+    return /expositor|nicho/.test(reason)
+      ? `Expositor ${round(w)} × ${round(h)} × ${round(d)}`
+      : `Balcão ${round(w)} × ${round(h)} × ${round(d)}`;
+  if (kind === "other") {
+    if (/^Chapa horizontal/.test(reason)) return `Prateleira ${two(w, d)}`;
+    if (/^Chapa vertical/.test(reason))
+      return `Lateral ${two(Math.max(w, d), h)}`;
+    if (/no alto/.test(reason)) return `Forro ${two(w, d)}`;
+    return `Peça ${two(sorted[0], sorted[1])}`;
+  }
+  return "";
 }
 
 // Material de construção e revestimento para o tipo escolhido
@@ -331,12 +401,13 @@ function materials(kind, t, h, part, visual) {
         materialConfidence: gap <= 1.2 ? 0.9 : 0.8,
         note: `Chapa de ${sheet[0]} mm pela espessura do modelo (${cm(t)} cm).`,
       };
-    // Parede/testeira em caixa (estrutura + fechamento): MDF 15 mm é o padrão, a conferir
+    // Parede/testeira em caixa (estrutura + fechamento): MDF 15 mm é o padrão do stand;
+    // o caderno mostra o material para a conferência final
     return {
       materialId: "custo-498",
       finishId,
-      materialConfidence: 0.7,
-      note: `Espessura de ${cm(t)} cm (caixa): material padrão MDF 15 mm, confira.`,
+      materialConfidence: kind === "other" ? 0.7 : 0.85,
+      note: `Espessura de ${cm(t)} cm (em caixa): material padrão MDF 15 mm, confira no caderno.`,
     };
   }
   return { materialId: "", finishId, materialConfidence: 1 };

@@ -55,6 +55,7 @@ import { localRepository } from "./services/localRepository.js";
 import {
   acceptGreen,
   autoReview,
+  groupIdentical,
   autoStats,
   greenPending,
   memoryEntries,
@@ -227,6 +228,16 @@ export default function App() {
         .memoryRecord(entries)
         .catch((e) => console.warn("Não foi possível gravar na memória:", e));
     return fresh.length;
+  }
+  // Item da lista com peças iguais: seleciona todas as cópias juntas
+  function selectMany(ids, additive = false) {
+    setSelected((current) =>
+      additive
+        ? ids.every((id) => current.includes(id))
+          ? current.filter((id) => !ids.includes(id))
+          : [...new Set([...current, ...ids])]
+        : ids,
+    );
   }
   function select(id, additive = false) {
     if (!id) {
@@ -681,13 +692,13 @@ export default function App() {
               ))}
             </div>
             <div className="parts-list">
-              {visible.map((part, i) => (
+              {groupIdentical(visible).map(({ part, ids, quantity }, i) => (
                 <button
                   key={part.id}
                   data-part-id={part.id}
-                  className={`part-row ${selected.includes(part.id) ? "selected" : ""}`}
+                  className={`part-row ${ids.every((id) => selected.includes(id)) ? "selected" : ""}`}
                   onClick={(e) =>
-                    select(part.id, e.shiftKey || e.ctrlKey || e.metaKey)
+                    selectMany(ids, e.shiftKey || e.ctrlKey || e.metaKey)
                   }
                 >
                   <span
@@ -713,7 +724,14 @@ export default function App() {
                     />
                   )}
                   <span>
-                    <strong>{part.label}</strong>
+                    <strong>
+                      {part.label}
+                      {quantity > 1 && (
+                        <em className="qty" title="Peças iguais">
+                          ×{quantity}
+                        </em>
+                      )}
+                    </strong>
                     <small>
                       {KINDS[part.review.kind]} ·{" "}
                       {part.dimensions.map(formatM).join(" × ")} m
