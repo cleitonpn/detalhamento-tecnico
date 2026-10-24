@@ -46,6 +46,10 @@ export function formatM(n) {
   });
 }
 
+// Fora do caderno técnico: o que não é construído pelo stand (TV, equipamentos,
+// iluminação de terceiros) e o que a equipe marcou como fora do detalhamento
+export const OUTSIDE = new Set(["ignore", "equipment", "light"]);
+
 /**
  * Peças que entram no caderno: só as validadas e não ignoradas. Peças idênticas
  * (mesma impressão digital e mesma decisão) viram uma folha com a quantidade.
@@ -53,7 +57,7 @@ export function formatM(n) {
 export const sheetParts = (project) =>
   groupIdentical(
     project.parts.filter(
-      (p) => p.review.confirmed && p.review.kind !== "ignore",
+      (p) => p.review.confirmed && !OUTSIDE.has(p.review.kind),
     ),
   ).map((g) => ({
     ...g.part,

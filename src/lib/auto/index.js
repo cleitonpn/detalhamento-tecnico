@@ -4,7 +4,7 @@
 import { partIssues, mergeMemory } from "../../domain/project.js";
 
 export { mergeMemory };
-import { classifyPart, standContext, nameFor } from "./rules.js";
+import { classifyPart, standContext, nameFor, plausible } from "./rules.js";
 import { predict, sampleOf } from "./learn.js";
 import { nameKey } from "./fingerprint.js";
 
@@ -82,6 +82,30 @@ export function autoReview(
       else auto = rule;
       if (model) auto = withLearning(auto, part, ctx, model, valid);
     }
+    // Uma regra forte (logo, arte, mesa, peça fora do stand…) não é atropelada por
+    // uma decisão antiga: a peça volta para conferência
+    if (
+      auto.source !== "rules" &&
+      auto.kind !== rule.kind &&
+      rule.confidence >= 0.85
+    )
+      auto = {
+        ...auto,
+        confidence: Math.min(auto.confidence, 0.7),
+        reasons: [
+          ...auto.reasons.slice(0, 2),
+          `As regras discordam: ${rule.reasons[0]}`,
+        ],
+      };
+    // Sugestão que não combina com as medidas volta para a leitura das regras
+    if (!plausible(auto.kind, part) && plausible(rule.kind, part))
+      auto = {
+        ...rule,
+        reasons: [
+          ...rule.reasons.slice(0, 2),
+          `A ${auto.source === "memory" ? "memória" : "sugestão aprendida"} indicava outro tipo, que não combina com as medidas.`,
+        ],
+      };
     auto.confidence = Math.max(
       0,
       Math.min(1, Math.round(auto.confidence * 100) / 100),

@@ -28,6 +28,8 @@ export class SkpSceneBuilder {
   constructor(model) {
     this.model = model;
     this.materials = new Map();
+    // Peças fechadas já juntadas: cópias do mesmo componente reaproveitam a geometria
+    this.flatCache = new Map();
     this.geometries = new Map();
     this.layers = new Map(model.layers.map((l) => [l.id, l.name]));
     this.byId = new Map(model.materials.map((m) => [m.id, m]));
@@ -74,6 +76,7 @@ export class SkpSceneBuilder {
       definition: def.name,
       instanceName: inst.name,
       kind: inst.group ? "group" : "component",
+      defId: inst.definition,
       tag: this.layers.get(inst.layer) || "",
     };
     if (inst.matrix) {
@@ -150,7 +153,7 @@ export class SkpSceneBuilder {
       // conjunto de produtos expostos, não peça de marcenaria
       if (!info.named && !s.big && groups.length) this.cluster(node);
       // Componente comprado ou conjunto de itens pequenos: não se divide depois
-      if (groups.length) this.flatten(node);
+      if (groups.length) this.flatten(node, node.userData.skp?.defId);
       return;
     }
     // Contêiner com peças de porte dentro
@@ -163,7 +166,7 @@ export class SkpSceneBuilder {
     if (small.length > 1) {
       const g = this.wrap(node, small, "Itens pequenos", "Itens pequenos");
       this.cluster(g);
-      this.flatten(g);
+      this.flatten(g, `${node.userData.skp?.defId}|itens`);
     }
     for (const child of groups)
       if (!small.includes(child) || small.length === 1) this.mark(child);
@@ -187,8 +190,24 @@ export class SkpSceneBuilder {
    * da peça. Uma banqueta ou uma fileira de frascos tinha centenas de malhas, que
    * pesavam no levantamento salvo e no visualizador.
    */
-  flatten(node) {
+  flatten(node, defKey) {
     node.updateMatrixWorld(true);
+    // Mesma definição e mesmos materiais (herdados) = mesma geometria juntada
+    const sig = [];
+    node.traverse((o) => o.isMesh && sig.push(o.material.uuid));
+    const key = defKey != null ? `${defKey}|${sig.join(",")}` : null;
+    const cached = key && this.flatCache.get(key);
+    if (cached) {
+      node.clear();
+      for (const { geometry, material } of cached) {
+        const mesh = new THREE.Mesh(geometry, material);
+        mesh.name = node.name;
+        mesh.userData.originalName = node.userData.originalName;
+        node.add(mesh);
+      }
+      node.updateMatrixWorld(true);
+      return;
+    }
     const inverse = node.matrixWorld.clone().invert();
     const byMaterial = new Map();
     node.traverse((o) => {
@@ -213,6 +232,11 @@ export class SkpSceneBuilder {
       merged.push(mesh);
     }
     if (!merged.length) return;
+    if (key)
+      this.flatCache.set(
+        key,
+        merged.map((m) => ({ geometry: m.geometry, material: m.material })),
+      );
     node.clear();
     merged.forEach((m) => node.add(m));
     node.updateMatrixWorld(true);
