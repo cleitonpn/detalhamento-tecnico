@@ -1,15 +1,39 @@
+import { checkMemoryEntries, mergeMemory } from "../domain/project.js";
+
 let connection;
 function database() {
   if (!connection)
     connection = new Promise((resolve, reject) => {
-      const request = indexedDB.open("detalha-workspace", 1);
+      const request = indexedDB.open("detalha-workspace", 2);
       request.onupgradeneeded = () => {
         const db = request.result;
-        db.createObjectStore("projects", { keyPath: "id" });
-        db.createObjectStore("models");
-        db.createObjectStore("releases");
+        const store = (name, options) => {
+          if (!db.objectStoreNames.contains(name))
+            db.createObjectStore(name, options);
+        };
+        store("projects", { keyPath: "id" });
+        store("models");
+        store("releases");
+        // Memória de decisões: impressão digital da peça -> decisão humana
+        store("memory");
       };
-      request.onsuccess = () => resolve(request.result);
+      request.onsuccess = () => {
+        const db = request.result;
+        // Outra aba (ou versão nova do Detalha) precisa atualizar o banco: libera
+        db.onversionchange = () => {
+          db.close();
+          connection = null;
+        };
+        resolve(db);
+      };
+      request.onblocked = () => {
+        connection = null;
+        reject(
+          Error(
+            "Feche as outras abas do Detalha para atualizar o armazenamento deste navegador.",
+          ),
+        );
+      };
       request.onerror = () => {
         connection = null;
         reject(
@@ -37,7 +61,47 @@ async function request(store, mode, run) {
       );
   });
 }
+// Várias leituras ou gravações numa transação só (milhares de chaves por projeto)
+async function many(mode, run) {
+  const db = await database();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction("memory", mode);
+    const result = run(tx.objectStore("memory"));
+    tx.oncomplete = () => resolve(result);
+    tx.onerror = tx.onabort = () =>
+      reject(Error("Não foi possível usar a memória deste navegador."));
+  });
+}
 export const localRepository = {
+  /** Decisões já tomadas para estas impressões digitais: { chave: decisão }. */
+  async memoryLookup(keys) {
+    const found = {};
+    await many("readonly", (store) =>
+      keys.forEach((key) => {
+        const r = store.get(key);
+        r.onsuccess = () => {
+          if (r.result) found[key] = r.result;
+        };
+      }),
+    );
+    return found;
+  },
+  /** Grava decisões humanas (já conferidas pelo domínio). */
+  async memoryRecord(entries) {
+    const valid = checkMemoryEntries(entries);
+    await many("readwrite", (store) => {
+      const pending = new Map();
+      for (const e of valid) {
+        const r = store.get(e.key);
+        r.onsuccess = () => {
+          const merged = mergeMemory(pending.get(e.key) ?? r.result, e);
+          pending.set(e.key, merged);
+          store.put(merged, e.key);
+        };
+      }
+    });
+    return { recorded: valid.length };
+  },
   async list() {
     return (await request("projects", "readonly", (s) => s.getAll())).sort(
       (a, b) => b.updatedAt.localeCompare(a.updatedAt),

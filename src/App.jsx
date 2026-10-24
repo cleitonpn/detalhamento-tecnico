@@ -52,6 +52,16 @@ import { loadModel, useLightweightMode } from "./lib/loader.js";
 import { demoFile } from "./lib/demo.js";
 import { formatM } from "./lib/drawings.js";
 import { localRepository } from "./services/localRepository.js";
+import {
+  acceptGreen,
+  autoReview,
+  autoStats,
+  greenPending,
+  memoryEntries,
+  memoryKeys,
+  mergeMemory,
+  refreshAuto,
+} from "./lib/auto/index.js";
 import { cloudRepository } from "./services/cloudRepository.js";
 import {
   applyStudioSource,
@@ -95,7 +105,9 @@ export default function App() {
     integrationRef = useRef(),
     lastSaved = useRef(""),
     queue = useRef(Promise.resolve()),
-    versions = useRef({});
+    versions = useRef({}),
+    // Memória de decisões (impressão digital -> decisão humana) do espaço de trabalho
+    memory = useRef(new Map());
   const currentScene = useRef(null),
     requestId = useRef(0);
   const repository = cloudMode ? cloudRepository : localRepository;
@@ -192,6 +204,30 @@ export default function App() {
     setProject({ ...next, status: "review" });
     setRelease(null);
   }
+  /**
+   * Depois de validar: grava as decisões na memória do espaço e recalcula as
+   * sugestões, para que peças idênticas fiquem verdes na hora.
+   */
+  function commitValidated(next, before) {
+    const was = new Set(
+      before.parts.filter((p) => p.review.confirmed).map((p) => p.id),
+    );
+    const fresh = next.parts.filter(
+      (p) => p.review.confirmed && !was.has(p.id),
+    );
+    const entries = memoryEntries(fresh);
+    for (const e of entries)
+      memory.current.set(e.key, mergeMemory(memory.current.get(e.key), e));
+    edit({
+      ...next,
+      parts: autoReview(next.parts, memory.current, next.materials),
+    });
+    if (entries.length)
+      repository
+        .memoryRecord(entries)
+        .catch((e) => console.warn("Não foi possível gravar na memória:", e));
+    return fresh.length;
+  }
   function select(id, additive = false) {
     if (!id) {
       setSelected([]);
@@ -263,11 +299,31 @@ export default function App() {
         nextScene,
         restored?.sourceUnit || nextScene.userData.dtSourceUnit || "m",
       );
-      const next = restored || {
+      const base = restored || {
         ...newProject(sourceFile, { ...nextAnalysis, hash }),
         sourceUnit: nextScene.userData.dtSourceUnit || "m",
         materials,
       };
+      // Camadas 1 e 2: memória de peças já validadas + regras geométricas
+      setBusy("Reconhecendo as peças (memória e regras)…");
+      let known = new Map();
+      try {
+        // A memória ajuda, mas nunca segura a abertura do projeto
+        const timeout = new Promise((_, reject) =>
+          setTimeout(() => reject(Error("tempo esgotado")), 8000),
+        );
+        known = new Map(
+          Object.entries(
+            await Promise.race([
+              repository.memoryLookup(memoryKeys(base.parts)),
+              timeout,
+            ]),
+          ),
+        );
+      } catch (e) {
+        console.warn("Memória de peças indisponível:", e);
+      }
+      const next = refreshAuto(base, known);
       checkProject(next);
       if (token !== requestId.current) {
         disposeModel(nextScene);
@@ -290,6 +346,7 @@ export default function App() {
       setFocusTick(0);
       setIsolate(false);
       setXray(false);
+      memory.current = known;
       const cad = nextScene.userData.dtCad;
       const skp = nextScene.userData.dtSkp;
       if (skp && !restored)
@@ -316,6 +373,11 @@ export default function App() {
         setNotice(
           "Modelo aberto em modo leve, sem texturas, para reduzir o uso de memória. A geometria, as medidas e o GLB original foram preservados.",
         );
+      if (!restored) {
+        const st = autoStats(next);
+        const summary = `Reconhecimento automático: ${st.green} peça(s) prontas para aceitar, ${st.yellow} para conferir e ${st.red} para decidir.`;
+        setNotice((current) => (current ? `${current} ${summary}` : summary));
+      }
     } catch (e) {
       if (nextScene && nextScene !== currentScene.current)
         disposeModel(nextScene);
@@ -362,6 +424,9 @@ export default function App() {
           .includes(query.toLowerCase()) &&
         (filter === "all" ||
           (filter === "pending" && !p.review.confirmed) ||
+          (filter === "check" &&
+            !p.review.confirmed &&
+            p.auto?.level !== "green") ||
           (filter === "confirmed" && p.review.confirmed)),
     ) || [];
   if (!authReady)
@@ -603,6 +668,7 @@ export default function App() {
               {[
                 ["all", "Todas"],
                 ["pending", "Pendentes"],
+                ["check", "Conferir"],
                 ["confirmed", "Validadas"],
               ].map(([id, label]) => (
                 <button
@@ -633,6 +699,19 @@ export default function App() {
                       String(i + 1).padStart(2, "0")
                     )}
                   </span>
+                  {!part.review.confirmed && part.auto && (
+                    <i
+                      className={`auto-dot ${part.auto.level}`}
+                      title={`${Math.round(part.auto.confidence * 100)}% · ${part.auto.reasons[0]}`}
+                      aria-label={
+                        {
+                          green: "Pronta para aceitar",
+                          yellow: "Conferir",
+                          red: "Decidir",
+                        }[part.auto.level]
+                      }
+                    />
+                  )}
                   <span>
                     <strong>{part.label}</strong>
                     <small>
@@ -647,6 +726,27 @@ export default function App() {
                 <p className="helper no-results">Nenhuma peça neste filtro.</p>
               )}
             </div>
+            {greenPending(project) > 0 && (
+              <div className="auto-accept">
+                <p>
+                  <i className="auto-dot green" /> {greenPending(project)}{" "}
+                  peça(s) reconhecidas com segurança (memória ou regras).
+                </p>
+                <button
+                  className="button primary full"
+                  onClick={() => {
+                    const r = acceptGreen(project);
+                    if (!r.count) return;
+                    commitValidated(r.project, project);
+                    setNotice(
+                      `${r.count} peça(s) aceitas com as medidas do modelo. Revise as amarelas e vermelhas no filtro Conferir.`,
+                    );
+                  }}
+                >
+                  Aceitar {greenPending(project)} sugestões verdes
+                </button>
+              </div>
+            )}
             <div className="parts-footer">
               <div className="progress-track">
                 <span style={{ width: `${p.percent}%` }} />
@@ -656,6 +756,15 @@ export default function App() {
                   ? `${p.pending} peças para conferir`
                   : "Todas as peças foram conferidas"}
               </p>
+              {(() => {
+                const st = autoStats(project);
+                return st.rate === null ? null : (
+                  <p className="helper">
+                    Sugestões aceitas sem mudança: {st.rate}% ({st.accepted} de{" "}
+                    {st.accepted + st.edited})
+                  </p>
+                );
+              })()}
             </div>
           </aside>
         )}
@@ -821,9 +930,9 @@ export default function App() {
             onChange={(patch) => edit(updateParts(project, selected, patch))}
             onConfirm={() => {
               try {
-                edit(confirmParts(project, selected));
+                commitValidated(confirmParts(project, selected), project);
                 setNotice(
-                  "Peças validadas. Continue com os próximos conjuntos.",
+                  "Peças validadas e guardadas na memória. Peças idênticas foram atualizadas.",
                 );
               } catch (e) {
                 setError(e.message);

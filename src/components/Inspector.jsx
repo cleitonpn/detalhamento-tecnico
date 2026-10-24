@@ -81,26 +81,58 @@ export default function Inspector({
                   : "Medidas na orientação original da peça."}
               </p>
             </div>
-            <div className="suggestion">
-              <span className="eyebrow">Sugestão para conferir</span>
-              <strong>{KINDS[first.suggestion.kind] || "A classificar"}</strong>
-              <p>{first.suggestion.reason}</p>
-              <button
-                className="text-button"
-                onClick={() =>
-                  onChange({
-                    review: {
-                      kind: first.suggestion.kind,
-                      ...(first.suggestion.kind === "metalon"
-                        ? { materialId: "metalon-custom" }
-                        : {}),
-                    },
-                  })
-                }
-              >
-                Usar sugestão
-              </button>
-            </div>
+            {first.auto ? (
+              <div className={`suggestion auto ${first.auto.level}`}>
+                <span className="eyebrow">
+                  <i className={`auto-dot ${first.auto.level}`} />
+                  {
+                    {
+                      green: "Reconhecida com segurança",
+                      yellow: "Sugestão para conferir",
+                      red: "Precisa de decisão",
+                    }[first.auto.level]
+                  }{" "}
+                  · {first.auto.source === "memory" ? "memória" : "regras"} ·{" "}
+                  {Math.round(first.auto.confidence * 100)}%
+                </span>
+                <strong>
+                  {KINDS[first.auto.kind] || "A classificar"}
+                  {first.auto.materialId &&
+                    ` · ${materialLabel(materials.find((m) => m.id === first.auto.materialId))}`}
+                  {first.auto.finishId &&
+                    ` · ${materialLabel(materials.find((m) => m.id === first.auto.finishId))}`}
+                </strong>
+                <ul>
+                  {first.auto.reasons.map((r) => (
+                    <li key={r}>{r}</li>
+                  ))}
+                </ul>
+                {first.auto.kind !== "unclassified" && (
+                  <button
+                    className="text-button"
+                    onClick={() =>
+                      onChange({
+                        review: {
+                          kind: first.auto.kind,
+                          materialId: first.auto.materialId || "",
+                          finishId: first.auto.finishId || "",
+                        },
+                      })
+                    }
+                  >
+                    Usar sugestão
+                  </button>
+                )}
+              </div>
+            ) : (
+              <div className="suggestion">
+                <span className="eyebrow">Sugestão para conferir</span>
+                <strong>
+                  {KINDS[first.suggestion.kind] || "A classificar"}
+                </strong>
+                <p>{first.suggestion.reason}</p>
+              </div>
+            )}
           </>
         )}
         <label className="field-label" htmlFor="part-kind">

@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { coletarPecas } from "./vendor/studio/analyze.js";
 import { MAX_FILE_BYTES, MAX_FILE_MB, SCALE } from "../domain/project.js";
+import { fingerprint, surfaceStats } from "./auto/fingerprint.js";
 
 const plainReview = () => ({
   kind: "unclassified",
@@ -142,6 +143,12 @@ function describe(meshes, ids, label, scale, frameNode = meshes[0]) {
   // (o levantamento inteiro precisa caber num documento da nuvem)
   const mm = (v) => Math.round(v * 1e5) / 1e5,
     unit = (v) => Math.round(v * 1e7) / 1e7;
+  // Pistas do arquivo de origem (SketchUp: tag e nome do componente) e impressão digital
+  const skp = frameNode?.userData?.skp;
+  const hints = skp
+    ? { tag: skp.tag || "", definition: skp.definition || "" }
+    : null;
+  const surface = surfaceStats(meshes, scale);
   return {
     id: `part-${ids[0].replaceAll("/", "-")}`,
     label,
@@ -153,6 +160,13 @@ function describe(meshes, ids, label, scale, frameNode = meshes[0]) {
       origin: frame.origin.map(mm),
       axes: frame.axes.map((a) => a.map(unit)),
     },
+    ...(hints ? { hints } : {}),
+    fingerprint: fingerprint({
+      dimensions,
+      tris: surface.tris,
+      area: surface.area,
+      name: hints?.definition || label,
+    }),
     materialsOriginal: [
       ...new Set(
         meshes.flatMap((o) =>

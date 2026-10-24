@@ -13,6 +13,25 @@ const call = async (name, data = {}) =>
     })
   ).data;
 export const cloudRepository = {
+  async memoryLookup(keys) {
+    const found = {};
+    // Lotes para não estourar o tamanho da chamada
+    for (let i = 0; i < keys.length; i += 4000)
+      Object.assign(
+        found,
+        (await call("dt_memoryLookup", { keys: keys.slice(i, i + 4000) }))
+          .memory,
+      );
+    return found;
+  },
+  async memoryRecord(entries) {
+    let recorded = 0;
+    for (let i = 0; i < entries.length; i += 2000)
+      recorded += (
+        await call("dt_memoryRecord", { entries: entries.slice(i, i + 2000) })
+      ).recorded;
+    return { recorded };
+  },
   async list() {
     return (await call("dt_listProjects")).projects;
   },

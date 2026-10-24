@@ -374,3 +374,63 @@ export function readTechnicalPackage(value) {
     throw Error("Pacote técnico sem revisão validada.");
   return value;
 }
+
+// ---------- memória de decisões (impressão digital das peças) ----------
+
+export const MEMORY_KEY = /^[0-9a-f]{13}$/;
+export const MAX_MEMORY_KEYS = 8000;
+export const MAX_MEMORY_ENTRIES = 4000;
+
+/** Chaves de consulta válidas e sem repetição. */
+export function checkMemoryKeys(keys) {
+  if (!Array.isArray(keys) || keys.length > MAX_MEMORY_KEYS)
+    throw Error("Consulta à memória inválida.");
+  return [
+    ...new Set(keys.filter((k) => typeof k === "string" && MEMORY_KEY.test(k))),
+  ];
+}
+
+/** Decisões humanas a gravar: tipo conhecido, materiais com identificador simples. */
+export function checkMemoryEntries(entries) {
+  if (!Array.isArray(entries) || entries.length > MAX_MEMORY_ENTRIES)
+    throw Error("Decisões inválidas para a memória.");
+  const id = (v) =>
+    typeof v === "string" && /^[a-zA-Z0-9_-]{0,100}$/.test(v) ? v : null;
+  return entries.map((e) => {
+    if (
+      !MEMORY_KEY.test(e?.key || "") ||
+      !KINDS[e.kind] ||
+      e.kind === "unclassified"
+    )
+      throw Error("Decisão inválida para a memória.");
+    const materialId = id(e.materialId ?? ""),
+      finishId = id(e.finishId ?? "");
+    if (materialId === null || finishId === null)
+      throw Error("Material inválido na memória.");
+    return {
+      key: e.key,
+      kind: e.kind,
+      materialId,
+      finishId,
+      label: cleanText(e.label, 120),
+    };
+  });
+}
+
+/** Junta uma decisão nova a uma entrada da memória (conta e marca divergência). */
+export function mergeMemory(old, entry, now = new Date().toISOString()) {
+  const differs =
+    !!old &&
+    (old.kind !== entry.kind ||
+      (old.materialId || "") !== entry.materialId ||
+      (old.finishId || "") !== entry.finishId);
+  return {
+    kind: entry.kind,
+    materialId: entry.materialId,
+    finishId: entry.finishId,
+    label: entry.label,
+    n: (old?.n || 0) + 1,
+    conflict: Boolean(old?.conflict || differs),
+    updatedAt: now,
+  };
+}
