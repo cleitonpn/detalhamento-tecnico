@@ -6,7 +6,7 @@ export const KINDS = {
   wall: "Parede de madeira",
   fascia: "Testeira",
   finish: "Revestimento",
-  furniture: "Mobiliário / balcão",
+  furniture: "Balcão / marcenaria",
   floor: "Piso",
   equipment: "TV / equipamento",
   light: "Iluminação",
@@ -17,6 +17,8 @@ export const SCALE = { m: 1, cm: 0.01, mm: 0.001 };
 export const MAX_FILE_MB = 200;
 export const MAX_FILE_BYTES = MAX_FILE_MB * 1024 * 1024;
 export const MAX_PARTS = 5000;
+// Levantamento (JSON das peças) aceito; na nuvem ele é gravado compactado
+export const MAX_PROJECT_BYTES = 8 * 1024 * 1024;
 export const MATERIAL_REQUIRED = new Set([
   "metalon",
   "wall",
@@ -111,6 +113,7 @@ export const MODEL_FORMATS = {
   dwg: { contentType: "image/vnd.dwg", label: "DWG" },
   dxf: { contentType: "image/vnd.dxf", label: "DXF" },
   zip: { contentType: "application/zip", label: "ZIP" },
+  skp: { contentType: "application/vnd.sketchup.skp", label: "SketchUp" },
 };
 export const MODEL_HEADER_BYTES = 32;
 export function modelFormat(name) {
@@ -150,6 +153,14 @@ export function checkModelHeader(format, header, bytes) {
     );
   }
   if (format === "zip") return header.length >= 4 && u32(0) === 0x04034b50;
+  // SketchUp: FF FE FF 0E seguido de "SketchUp Model" em UTF-16
+  if (format === "skp")
+    return (
+      header.length >= 32 &&
+      u32(0) === 0x0efffeff &&
+      new TextDecoder("utf-16le").decode(header.subarray(4, 32)) ===
+        "SketchUp Model"
+    );
   return false;
 }
 
@@ -269,7 +280,10 @@ export function checkProject(project) {
     if (part.review.confirmed && partIssues(part).length)
       throw Error("Peça confirmada com informações pendentes.");
   }
-  if (new TextEncoder().encode(JSON.stringify(project)).byteLength > 700000)
+  if (
+    new TextEncoder().encode(JSON.stringify(project)).byteLength >
+    MAX_PROJECT_BYTES
+  )
     throw Error(
       "O levantamento ficou muito grande. Divida o projeto em arquivos menores.",
     );
@@ -359,4 +373,108 @@ export function readTechnicalPackage(value) {
   )
     throw Error("Pacote técnico sem revisão validada.");
   return value;
+}
+
+// ---------- memória de decisões (impressão digital das peças) ----------
+
+export const MEMORY_KEY = /^[0-9a-f]{13}$/;
+export const MAX_MEMORY_KEYS = 8000;
+export const MAX_MEMORY_ENTRIES = 4000;
+
+/** Chaves de consulta válidas e sem repetição. */
+export function checkMemoryKeys(keys) {
+  if (!Array.isArray(keys) || keys.length > MAX_MEMORY_KEYS)
+    throw Error("Consulta à memória inválida.");
+  return [
+    ...new Set(keys.filter((k) => typeof k === "string" && MEMORY_KEY.test(k))),
+  ];
+}
+
+/** Decisões humanas a gravar: tipo conhecido, materiais com identificador simples. */
+export function checkMemoryEntries(entries) {
+  if (!Array.isArray(entries) || entries.length > MAX_MEMORY_ENTRIES)
+    throw Error("Decisões inválidas para a memória.");
+  const id = (v) =>
+    typeof v === "string" && /^[a-zA-Z0-9_-]{0,100}$/.test(v) ? v : null;
+  return entries.map((e) => {
+    if (
+      !MEMORY_KEY.test(e?.key || "") ||
+      !KINDS[e.kind] ||
+      e.kind === "unclassified"
+    )
+      throw Error("Decisão inválida para a memória.");
+    const materialId = id(e.materialId ?? ""),
+      finishId = id(e.finishId ?? "");
+    if (materialId === null || finishId === null)
+      throw Error("Material inválido na memória.");
+    return {
+      key: e.key,
+      kind: e.kind,
+      materialId,
+      finishId,
+      label: cleanText(e.label, 120),
+    };
+  });
+}
+
+/** Junta uma decisão nova a uma entrada da memória (conta e marca divergência). */
+export function mergeMemory(old, entry, now = new Date().toISOString()) {
+  const differs =
+    !!old &&
+    (old.kind !== entry.kind ||
+      (old.materialId || "") !== entry.materialId ||
+      (old.finishId || "") !== entry.finishId);
+  return {
+    kind: entry.kind,
+    materialId: entry.materialId,
+    finishId: entry.finishId,
+    label: entry.label,
+    n: (old?.n || 0) + 1,
+    conflict: Boolean(old?.conflict || differs),
+    updatedAt: now,
+  };
+}
+
+// ---------- exemplos de treino do aprendizado (camada 3) ----------
+
+export const MAX_SAMPLES_PER_CALL = 500;
+export const MAX_SAMPLES_LISTED = 6000;
+
+/** Exemplos de peças validadas: números finitos, textos curtos, tipo conhecido. */
+export function checkSamples(samples) {
+  if (!Array.isArray(samples) || samples.length > MAX_SAMPLES_PER_CALL)
+    throw Error("Exemplos de treino inválidos.");
+  const num = (v) => {
+    if (!Number.isFinite(v))
+      throw Error("Exemplo de treino com medida inválida.");
+    return Math.round(v * 1e5) / 1e5;
+  };
+  const id = (v) =>
+    typeof v === "string" && /^[a-zA-Z0-9_-]{0,100}$/.test(v) ? v : "";
+  return samples.map((s) => {
+    if (!KINDS[s?.kind] || s.kind === "unclassified")
+      throw Error("Exemplo de treino sem tipo válido.");
+    const key = cleanText(s.key, 200).replace(/\//g, "_");
+    if (!key) throw Error("Exemplo de treino sem chave.");
+    return {
+      key,
+      project: cleanText(s.project, 80),
+      label: cleanText(s.label, 80),
+      w: num(s.w),
+      h: num(s.h),
+      d: num(s.d),
+      y0: num(s.y0),
+      y1: num(s.y1),
+      dist: num(s.dist),
+      standSize: num(s.standSize),
+      tris: Math.max(0, Math.round(num(s.tris))),
+      area: num(s.area),
+      text: cleanText(s.text, 240),
+      small: s.small ? 1 : 0,
+      kind: s.kind,
+      materialId: id(s.materialId),
+      finishId: id(s.finishId),
+      edited: Boolean(s.edited),
+    };
+  });
 }

@@ -8,7 +8,7 @@ test("validação humana, revisão, PDF e persistência local", async ({
   page.on("pageerror", (e) => errors.push(e.message));
   await page.goto("/");
   await page.getByRole("button", { name: /Explorar uma demonstração/ }).click();
-  await expect(page.locator(".part-row")).toHaveCount(10);
+  await expect(page.locator(".part-row")).toHaveCount(8); // 10 peças, pilares iguais num item
   await page.screenshot({
     path: testInfo.outputPath("modelo.png"),
     fullPage: true,
@@ -47,7 +47,7 @@ test("validação humana, revisão, PDF e persistência local", async ({
     }
     await page.getByLabel(/Conferi as medidas/).check();
     await page
-      .getByRole("button", { name: "Validar peça", exact: true })
+      .getByRole("button", { name: /^Validar (peça|selecionadas)$/ })
       .click();
   }
   await expect(page.locator(".progress-summary")).toContainText("10/10");
@@ -119,7 +119,7 @@ test("GLB real ECBR: balcão e quatro testeiras preservam as medidas", async ({
   page.on("pageerror", (e) => errors.push(e.message));
   await page.goto("/");
   await expect(
-    page.getByRole("button", { name: "Enviar modelo (.dwg ou .glb)" }),
+    page.getByRole("button", { name: "Enviar modelo (.skp, .dwg ou .glb)" }),
   ).toBeEnabled();
   await page
     .getByLabel("Arquivo GLB", { exact: true })
@@ -157,7 +157,7 @@ test("validação também fica acessível em tela pequena", async ({
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/");
   await page.getByRole("button", { name: /Explorar uma demonstração/ }).click();
-  await expect(page.locator(".part-row")).toHaveCount(10);
+  await expect(page.locator(".part-row")).toHaveCount(8); // 10 peças, pilares iguais num item
   await page.locator(".part-row").filter({ hasText: "Balcão" }).click();
   await expect(page.getByLabel("O que é esta peça?")).toBeVisible();
   await page.screenshot({
@@ -174,7 +174,7 @@ test("uma parede requer material, medidas e confirmação; alteração invalida 
 }, testInfo) => {
   await page.goto("/");
   await page.getByRole("button", { name: /Explorar uma demonstração/ }).click();
-  await expect(page.locator(".part-row")).toHaveCount(10);
+  await expect(page.locator(".part-row")).toHaveCount(8); // 10 peças, pilares iguais num item
   await page
     .locator(".part-row")
     .filter({ hasText: "Parede de fundo" })

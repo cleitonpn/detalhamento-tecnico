@@ -52,12 +52,27 @@ import { loadModel, useLightweightMode } from "./lib/loader.js";
 import { demoFile } from "./lib/demo.js";
 import { formatM } from "./lib/drawings.js";
 import { localRepository } from "./services/localRepository.js";
+import {
+  acceptGreen,
+  autoReview,
+  groupIdentical,
+  autoStats,
+  greenPending,
+  memoryEntries,
+  memoryKeys,
+  mergeMemory,
+  refreshAuto,
+  trainingSamples,
+} from "./lib/auto/index.js";
+import { trainModel } from "./lib/auto/learn.js";
 import { cloudRepository } from "./services/cloudRepository.js";
 import {
   applyStudioSource,
   productionEnvelope,
 } from "./services/integration.js";
 import { auth, cloudMode } from "./services/firebase.js";
+// Script do 3ds Max (2023+): gera o .glb com grupos, nomes, camadas e materiais
+import maxExporterUrl from "../extensions/3dsmax/detalha_exportar.py?url";
 
 const appName = import.meta.env.VITE_APP_NAME || "Detalha";
 const signature = ({ version, updatedAt, updatedBy, ...project }) =>
@@ -93,7 +108,13 @@ export default function App() {
     integrationRef = useRef(),
     lastSaved = useRef(""),
     queue = useRef(Promise.resolve()),
-    versions = useRef({});
+    versions = useRef({}),
+    // Memória de decisões (impressão digital -> decisão humana) do espaço de trabalho
+    memory = useRef(new Map()),
+    // Camada 3: exemplos do espaço (chave -> exemplo) e o modelo treinado com eles
+    samples = useRef(new Map()),
+    model = useRef(null),
+    retrain = useRef(0);
   const currentScene = useRef(null),
     requestId = useRef(0);
   const repository = cloudMode ? cloudRepository : localRepository;
@@ -190,6 +211,57 @@ export default function App() {
     setProject({ ...next, status: "review" });
     setRelease(null);
   }
+  /**
+   * Depois de validar: grava as decisões na memória do espaço e recalcula as
+   * sugestões, para que peças idênticas fiquem verdes na hora.
+   */
+  function commitValidated(next, before) {
+    const was = new Set(
+      before.parts.filter((p) => p.review.confirmed).map((p) => p.id),
+    );
+    const fresh = next.parts.filter(
+      (p) => p.review.confirmed && !was.has(p.id),
+    );
+    const entries = memoryEntries(fresh);
+    for (const e of entries)
+      memory.current.set(e.key, mergeMemory(memory.current.get(e.key), e));
+    edit({
+      ...next,
+      parts: autoReview(next.parts, memory.current, next.materials, {
+        model: model.current,
+      }),
+    });
+    if (entries.length)
+      repository
+        .memoryRecord(entries)
+        .catch((e) => console.warn("Não foi possível gravar na memória:", e));
+    // Camada 3: cada validação vira exemplo de treino; o modelo é retreinado em
+    // segundo plano e passa a valer nas próximas sugestões
+    const fresh2 = trainingSamples(next, fresh);
+    if (fresh2.length) {
+      for (const s of fresh2) samples.current.set(s.key, s);
+      repository
+        .samplesRecord(fresh2)
+        .catch((e) =>
+          console.warn("Não foi possível gravar o aprendizado:", e),
+        );
+      clearTimeout(retrain.current);
+      retrain.current = setTimeout(() => {
+        model.current = trainModel([...samples.current.values()]);
+      }, 1500);
+    }
+    return fresh.length;
+  }
+  // Item da lista com peças iguais: seleciona todas as cópias juntas
+  function selectMany(ids, additive = false) {
+    setSelected((current) =>
+      additive
+        ? ids.every((id) => current.includes(id))
+          ? current.filter((id) => !ids.includes(id))
+          : [...new Set([...current, ...ids])]
+        : ids,
+    );
+  }
   function select(id, additive = false) {
     if (!id) {
       setSelected([]);
@@ -247,11 +319,13 @@ export default function App() {
         throw Error("O arquivo salvo não corresponde ao projeto.");
       const lightweight = useLightweightMode(sourceFile);
       setBusy(
-        isCad(sourceFile.name)
-          ? "Lendo o desenho DWG e montando as peças 3D…"
-          : lightweight
-            ? "Lendo a geometria em modo leve, sem texturas…"
-            : "Lendo o modelo e suas texturas…",
+        /\.skp$/i.test(sourceFile.name)
+          ? "Lendo o modelo do SketchUp e montando as peças…"
+          : isCad(sourceFile.name)
+            ? "Lendo o desenho DWG e montando as peças 3D…"
+            : lightweight
+              ? "Lendo a geometria em modo leve, sem texturas…"
+              : "Lendo o modelo e suas texturas…",
       );
       nextScene = await loadModel(sourceFile, renderer, { buffer });
       setBusy("Organizando as peças e calculando as medidas…");
@@ -259,11 +333,48 @@ export default function App() {
         nextScene,
         restored?.sourceUnit || nextScene.userData.dtSourceUnit || "m",
       );
-      const next = restored || {
+      const base = restored || {
         ...newProject(sourceFile, { ...nextAnalysis, hash }),
         sourceUnit: nextScene.userData.dtSourceUnit || "m",
         materials,
       };
+      // Camadas 1 e 2: memória de peças já validadas + regras geométricas
+      setBusy("Reconhecendo as peças (memória e regras)…");
+      let known = new Map();
+      try {
+        // A memória ajuda, mas nunca segura a abertura do projeto
+        const timeout = new Promise((_, reject) =>
+          setTimeout(() => reject(Error("tempo esgotado")), 8000),
+        );
+        known = new Map(
+          Object.entries(
+            await Promise.race([
+              repository.memoryLookup(memoryKeys(base.parts)),
+              timeout,
+            ]),
+          ),
+        );
+      } catch (e) {
+        console.warn("Memória de peças indisponível:", e);
+      }
+      // Camada 3: modelo próprio treinado com as peças já validadas no espaço
+      try {
+        const timeoutSamples = new Promise((_, reject) =>
+          setTimeout(() => reject(Error("tempo esgotado")), 8000),
+        );
+        const list = await Promise.race([
+          repository.samplesList(),
+          timeoutSamples,
+        ]);
+        samples.current = new Map(list.map((s) => [s.key, s]));
+        model.current = trainModel([...samples.current.values()]);
+      } catch (e) {
+        console.warn("Aprendizado indisponível:", e);
+        model.current = null;
+      }
+      const next = refreshAuto(base, known, base.materials, {
+        model: model.current,
+      });
       checkProject(next);
       if (token !== requestId.current) {
         disposeModel(nextScene);
@@ -286,8 +397,14 @@ export default function App() {
       setFocusTick(0);
       setIsolate(false);
       setXray(false);
+      memory.current = known;
       const cad = nextScene.userData.dtCad;
-      if (cad && !restored)
+      const skp = nextScene.userData.dtSkp;
+      if (skp && !restored)
+        setNotice(
+          `Modelo do SketchUp ${skp.version} aberto direto: ${skp.faces.toLocaleString("pt-BR")} faces e ${skp.instances.toLocaleString("pt-BR")} grupos/componentes. Componentes com nome viram uma peça inteira e itens pequenos (produtos expostos) ficam reunidos. Confira as peças antes de validar.`,
+        );
+      else if (cad && !restored)
         setNotice(
           [
             `Desenho aberto direto do DWG, em ${nextScene.userData.dtSourceUnit}. Confira a unidade em Dados do projeto.`,
@@ -307,6 +424,14 @@ export default function App() {
         setNotice(
           "Modelo aberto em modo leve, sem texturas, para reduzir o uso de memória. A geometria, as medidas e o GLB original foram preservados.",
         );
+      if (!restored) {
+        const st = autoStats(next);
+        const learned = model.current
+          ? ` Aprendizado: modelo treinado com ${model.current.size} peças validadas${model.current.accuracy != null ? ` (acerto estimado ${Math.round(model.current.accuracy * 100)}%)` : ""}.`
+          : "";
+        const summary = `Reconhecimento automático: ${st.green} peça(s) prontas para aceitar, ${st.yellow} para conferir e ${st.red} para decidir.${learned}`;
+        setNotice((current) => (current ? `${current} ${summary}` : summary));
+      }
     } catch (e) {
       if (nextScene && nextScene !== currentScene.current)
         disposeModel(nextScene);
@@ -353,6 +478,9 @@ export default function App() {
           .includes(query.toLowerCase()) &&
         (filter === "all" ||
           (filter === "pending" && !p.review.confirmed) ||
+          (filter === "check" &&
+            !p.review.confirmed &&
+            p.auto?.level !== "green") ||
           (filter === "confirmed" && p.review.confirmed)),
     ) || [];
   if (!authReady)
@@ -424,9 +552,9 @@ export default function App() {
       <input
         ref={uploadRef}
         type="file"
-        accept=".glb,.dwg,.dxf,.zip"
+        accept=".skp,.glb,.dwg,.dxf,.zip"
         hidden
-        aria-label="Arquivo do modelo (GLB, DWG, DXF ou ZIP)"
+        aria-label="Arquivo do modelo (SKP, GLB, DWG, DXF ou ZIP)"
         onChange={(e) => {
           const f = e.target.files[0];
           e.target.value = "";
@@ -594,6 +722,7 @@ export default function App() {
               {[
                 ["all", "Todas"],
                 ["pending", "Pendentes"],
+                ["check", "Conferir"],
                 ["confirmed", "Validadas"],
               ].map(([id, label]) => (
                 <button
@@ -606,13 +735,13 @@ export default function App() {
               ))}
             </div>
             <div className="parts-list">
-              {visible.map((part, i) => (
+              {groupIdentical(visible).map(({ part, ids, quantity }, i) => (
                 <button
                   key={part.id}
                   data-part-id={part.id}
-                  className={`part-row ${selected.includes(part.id) ? "selected" : ""}`}
+                  className={`part-row ${ids.every((id) => selected.includes(id)) ? "selected" : ""}`}
                   onClick={(e) =>
-                    select(part.id, e.shiftKey || e.ctrlKey || e.metaKey)
+                    selectMany(ids, e.shiftKey || e.ctrlKey || e.metaKey)
                   }
                 >
                   <span
@@ -624,8 +753,28 @@ export default function App() {
                       String(i + 1).padStart(2, "0")
                     )}
                   </span>
+                  {!part.review.confirmed && part.auto && (
+                    <i
+                      className={`auto-dot ${part.auto.level}`}
+                      title={`${Math.round(part.auto.confidence * 100)}% · ${part.auto.reasons[0]}`}
+                      aria-label={
+                        {
+                          green: "Pronta para aceitar",
+                          yellow: "Conferir",
+                          red: "Decidir",
+                        }[part.auto.level]
+                      }
+                    />
+                  )}
                   <span>
-                    <strong>{part.label}</strong>
+                    <strong>
+                      {part.label}
+                      {quantity > 1 && (
+                        <em className="qty" title="Peças iguais">
+                          ×{quantity}
+                        </em>
+                      )}
+                    </strong>
                     <small>
                       {KINDS[part.review.kind]} ·{" "}
                       {part.dimensions.map(formatM).join(" × ")} m
@@ -638,6 +787,27 @@ export default function App() {
                 <p className="helper no-results">Nenhuma peça neste filtro.</p>
               )}
             </div>
+            {greenPending(project) > 0 && (
+              <div className="auto-accept">
+                <p>
+                  <i className="auto-dot green" /> {greenPending(project)}{" "}
+                  peça(s) reconhecidas com segurança (memória ou regras).
+                </p>
+                <button
+                  className="button primary full"
+                  onClick={() => {
+                    const r = acceptGreen(project);
+                    if (!r.count) return;
+                    commitValidated(r.project, project);
+                    setNotice(
+                      `${r.count} peça(s) aceitas com as medidas do modelo. Revise as amarelas e vermelhas no filtro Conferir.`,
+                    );
+                  }}
+                >
+                  Aceitar {greenPending(project)} sugestões verdes
+                </button>
+              </div>
+            )}
             <div className="parts-footer">
               <div className="progress-track">
                 <span style={{ width: `${p.percent}%` }} />
@@ -647,6 +817,22 @@ export default function App() {
                   ? `${p.pending} peças para conferir`
                   : "Todas as peças foram conferidas"}
               </p>
+              {model.current && (
+                <p className="helper">
+                  Aprendizado: {model.current.size} peças validadas
+                  {model.current.accuracy != null &&
+                    ` · acerto estimado ${Math.round(model.current.accuracy * 100)}%`}
+                </p>
+              )}
+              {(() => {
+                const st = autoStats(project);
+                return st.rate === null ? null : (
+                  <p className="helper">
+                    Sugestões aceitas sem mudança: {st.rate}% ({st.accepted} de{" "}
+                    {st.accepted + st.edited})
+                  </p>
+                );
+              })()}
             </div>
           </aside>
         )}
@@ -687,7 +873,7 @@ export default function App() {
                 onClick={() => uploadRef.current.click()}
               >
                 <Upload size={19} />
-                Enviar modelo (.dwg ou .glb)
+                Enviar modelo (.skp, .dwg ou .glb)
               </button>
               <button
                 className="text-button demo-button"
@@ -703,8 +889,16 @@ export default function App() {
                 Explorar uma demonstração <ChevronRight size={16} />
               </button>
               <small>
-                Até {MAX_FILE_MB} MB · DWG, DXF, ZIP do WeTransfer ou GLB 2.0
+                Até {MAX_FILE_MB} MB · SketchUp 2021+, DWG, DXF, ZIP do
+                WeTransfer ou GLB 2.0
               </small>
+              <a
+                className="text-button"
+                href={maxExporterUrl}
+                download="detalha_exportar.py"
+              >
+                Usa 3ds Max? Baixe o exportador para o Detalha
+              </a>
             </div>
           )}
           {project && (
@@ -804,9 +998,9 @@ export default function App() {
             onChange={(patch) => edit(updateParts(project, selected, patch))}
             onConfirm={() => {
               try {
-                edit(confirmParts(project, selected));
+                commitValidated(confirmParts(project, selected), project);
                 setNotice(
-                  "Peças validadas. Continue com os próximos conjuntos.",
+                  "Peças validadas e guardadas na memória. Peças idênticas foram atualizadas.",
                 );
               } catch (e) {
                 setError(e.message);

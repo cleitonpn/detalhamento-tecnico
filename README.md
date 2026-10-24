@@ -4,6 +4,7 @@ Aplicação independente para transformar um modelo `.glb` em um levantamento or
 
 ## O que já funciona nesta base
 
+- Abertura direta do SketchUp (.skp, versão 2021+) por um leitor próprio, sem extensão nem conversão: grupos, componentes, nomes, tags e materiais; componentes com nome viram uma peça e produtos expostos ficam reunidos. Para o 3ds Max (2023+), um script gera o .glb com grupos, camadas e materiais. Ver [docs/SKETCHUP.md](docs/SKETCHUP.md).
 - Upload de GLB 2.0 de até 200 MB, incluindo Draco, Meshopt e KTX2/Basis.
 - Abertura direta de DWG, DXF e ZIP (WeTransfer), sem converter para GLB: malhas do SketchUp (MESH, polyface, 3DFACE) e blocos como peças, com a unidade detectada pelo tamanho do desenho. Sólidos do AutoCAD (3DSOLID, BODY, REGION) de arquivos 2013+ são lidos por um leitor próprio do formato ACIS (`src/lib/dwg/acis`): faces planas, cilíndricas, cônicas, esféricas e toroidais. Faces de superfície livre (spline) e sólidos de arquivos anteriores ao AutoCAD 2013 ainda pedem MESHSMOOTH no AutoCAD. No espaço em nuvem o DWG/DXF/ZIP original é enviado ao Storage, com assinatura e SHA-256 conferidos pela função `dt_saveProject`.
 - Caderno de arte (comunicação visual, a partir do Arte Guide): escolha as paredes; cada face vira um gabarito A4 com medidas, sangria, área de segurança e interferências detectadas no modelo (TV, prateleira, balcão), com cotas em cadeia. O PDF abre com o mapa de instalação (isométrica com A, B, C…) e traz a vista 3D de cada parede.

@@ -80,6 +80,7 @@ export default function Drawings({
   const p = progress(project);
   // O caderno mostra só o que a equipe validou
   const parts = useMemo(() => sheetParts(project), [project]);
+  const units = parts.reduce((n, x) => n + (x.quantity || 1), 0);
   // Abre na vista geral; uma peça removida do caderno também volta para ela
   const index = parts.findIndex((x) => x.id === partId);
   const part = index >= 0 ? parts[index] : null;
@@ -136,14 +137,14 @@ export default function Drawings({
             {release
               ? `Revisão ${release.revision} registrada`
               : parts.length
-                ? `${parts.length} ${parts.length === 1 ? "peça validada" : "peças validadas"} no caderno`
+                ? `${parts.length} ${parts.length === 1 ? "item" : "itens"} no caderno (${units} ${units === 1 ? "peça" : "peças"}; peças iguais numa folha só)`
                 : "Nenhuma peça validada ainda"}
           </strong>
           <p>
             Peças sem validação não aparecem aqui. Selecione e valide na etapa
             anterior as peças que quer detalhar.{" "}
             {release
-              ? `${parts.length} peças validadas no caderno.`
+              ? `${parts.length} itens (${units} peças) no caderno.`
               : p.pending
                 ? `Para registrar uma revisão oficial, todas as ${p.total} peças precisam estar validadas ou ignoradas (faltam ${p.pending}).`
                 : "Tudo validado: a revisão já pode ser registrada."}
@@ -194,7 +195,10 @@ export default function Drawings({
               onClick={() => setPartId(p.id)}
             >
               <span>{String(i + 1).padStart(2, "0")}</span>
-              <strong>{p.label}</strong>
+              <strong>
+                {p.label}
+                {p.quantity > 1 && <small> ×{p.quantity}</small>}
+              </strong>
               <CheckCircle2 size={15} />
             </button>
           ))}

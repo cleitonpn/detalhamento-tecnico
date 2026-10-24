@@ -167,8 +167,8 @@ test("Functions: workspace, upload verificado, concorrência, publicação e iso
   assert.equal(dwgSaved.version, 1);
   await assert.rejects(
     call("dt_reserveModel", {
-      projectId: "project_skp",
-      file: { ...dwgFile, name: "fixture.skp" },
+      projectId: "project_3ds",
+      file: { ...dwgFile, name: "fixture.3ds" },
     }),
     /não suportado/,
   );

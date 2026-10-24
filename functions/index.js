@@ -3,13 +3,17 @@ import { initializeApp } from "firebase-admin/app";
 import { getFirestore, FieldValue } from "firebase-admin/firestore";
 import { getStorage } from "firebase-admin/storage";
 import { createHash } from "node:crypto";
+import { packParts, unpackParts } from "./packing.js";
 import {
   assertId,
   checkProject,
   cleanText,
   createRelease,
-  toStoredParts,
-  fromStoredParts,
+  checkMemoryKeys,
+  checkMemoryEntries,
+  mergeMemory,
+  checkSamples,
+  MAX_SAMPLES_LISTED,
   MAX_FILE_BYTES,
   MAX_FILE_MB,
   MODEL_FORMATS,
@@ -223,9 +227,13 @@ export const dt_saveProject = endpoint(async (req) => {
       updatedAt: new Date().toISOString(),
       updatedBy: req.auth.uid,
     };
+    const summary = progress(saved);
     tx.set(ref, {
       ...saved,
-      parts: toStoredParts(saved.parts),
+      parts: [],
+      partsGz: packParts(saved.parts),
+      partCount: summary.total,
+      confirmedCount: summary.confirmed,
       modelPath: path,
     });
   });
@@ -237,8 +245,14 @@ export const dt_getProject = endpoint(async (req) => {
     snapshot = await projectRef(id, req.data.projectId).get();
   if (!snapshot.exists)
     throw new HttpsError("not-found", "Projeto não encontrado.");
-  const { modelPath: path, ...stored } = snapshot.data();
-  const project = { ...stored, parts: fromStoredParts(stored.parts) };
+  const {
+    modelPath: path,
+    partsGz,
+    partCount,
+    confirmedCount,
+    ...stored
+  } = snapshot.data();
+  const project = { ...stored, parts: unpackParts({ ...stored, partsGz }) };
   const saved =
     project.status === "validated" && project.revision > 0
       ? (
@@ -249,9 +263,66 @@ export const dt_getProject = endpoint(async (req) => {
         ).data() || null
       : null;
   const release = saved
-    ? { ...saved, parts: fromStoredParts(saved.parts) }
+    ? (({ partsGz: gz, ...rest }) => ({
+        ...rest,
+        parts: unpackParts({ ...rest, partsGz: gz }),
+      }))(saved)
     : null;
   return { project, path, release };
+});
+// Memória de decisões do espaço de trabalho: impressão digital da peça -> decisão humana.
+// Só membros leem; só quem edita grava (ao validar peças).
+export const dt_memoryLookup = endpoint(async (req) => {
+  const { id } = await authorize(req);
+  const keys = checkMemoryKeys(req.data.keys);
+  const col = db.collection(`dt_workspaces/${id}/memory`);
+  const memory = {};
+  for (let i = 0; i < keys.length; i += 300) {
+    const snaps = await db.getAll(
+      ...keys.slice(i, i + 300).map((k) => col.doc(k)),
+    );
+    for (const s of snaps) if (s.exists) memory[s.id] = s.data();
+  }
+  return { memory };
+});
+export const dt_memoryRecord = endpoint(async (req) => {
+  const { id } = await authorize(req, true);
+  const entries = checkMemoryEntries(req.data.entries);
+  const col = db.collection(`dt_workspaces/${id}/memory`);
+  for (let i = 0; i < entries.length; i += 200) {
+    const chunk = entries.slice(i, i + 200);
+    await db.runTransaction(async (tx) => {
+      const refs = [...new Set(chunk.map((e) => e.key))].map((k) => col.doc(k));
+      const snaps = await tx.getAll(...refs);
+      const current = new Map(
+        snaps.map((s) => [s.id, s.exists ? s.data() : null]),
+      );
+      for (const e of chunk)
+        current.set(e.key, mergeMemory(current.get(e.key), e));
+      for (const ref of refs) tx.set(ref, current.get(ref.id));
+    });
+  }
+  return { recorded: entries.length };
+});
+// Exemplos de treino do aprendizado: peças validadas do espaço de trabalho
+export const dt_samplesRecord = endpoint(async (req) => {
+  const { id } = await authorize(req, true);
+  const samples = checkSamples(req.data.samples);
+  const col = db.collection(`dt_workspaces/${id}/samples`);
+  const now = new Date().toISOString();
+  const batch = db.batch();
+  for (const s of samples) batch.set(col.doc(s.key), { ...s, updatedAt: now });
+  await batch.commit();
+  return { recorded: samples.length };
+});
+export const dt_samplesList = endpoint(async (req) => {
+  const { id } = await authorize(req);
+  const list = await db
+    .collection(`dt_workspaces/${id}/samples`)
+    .orderBy("updatedAt", "desc")
+    .limit(MAX_SAMPLES_LISTED)
+    .get();
+  return { samples: list.docs.map((d) => d.data()) };
 });
 export const dt_listProjects = endpoint(async (req) => {
   const { id } = await authorize(req);
@@ -263,7 +334,9 @@ export const dt_listProjects = endpoint(async (req) => {
   return {
     projects: list.docs.map((doc) => {
       const p = doc.data(),
-        summary = progress(p);
+        summary = p.partsGz
+          ? { total: p.partCount || 0, confirmed: p.confirmedCount || 0 }
+          : progress(p);
       return {
         id: p.id,
         name: p.name,
@@ -284,8 +357,14 @@ export const dt_publishRevision = endpoint(async (req) => {
       snapshot = await tx.get(ref);
     if (!snapshot.exists)
       throw new HttpsError("not-found", "Projeto não encontrado.");
-    const { modelPath: path, ...stored } = snapshot.data();
-    const project = { ...stored, parts: fromStoredParts(stored.parts) };
+    const {
+      modelPath: path,
+      partsGz,
+      partCount,
+      confirmedCount,
+      ...stored
+    } = snapshot.data();
+    const project = { ...stored, parts: unpackParts({ ...stored, partsGz }) };
     checkVersion(req.data.expectedVersion, project.version);
     release = createRelease(project, (project.revision || 0) + 1);
     release.artifacts = [
@@ -297,10 +376,11 @@ export const dt_publishRevision = endpoint(async (req) => {
     ];
     release.validatedBy = req.auth.uid;
     version = project.version + 1;
-    tx.create(
-      ref.collection("revisions").doc(String(release.revision)),
-      { ...release, parts: toStoredParts(release.parts) },
-    );
+    tx.create(ref.collection("revisions").doc(String(release.revision)), {
+      ...release,
+      parts: [],
+      partsGz: packParts(release.parts),
+    });
     tx.update(ref, {
       status: "validated",
       revision: release.revision,

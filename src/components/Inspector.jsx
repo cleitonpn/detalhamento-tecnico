@@ -38,6 +38,11 @@ export default function Inspector({
     );
   const first = parts[0],
     multiple = parts.length > 1;
+  // Cópias da mesma peça (mesma impressão digital): o painel trata como uma só
+  const identical =
+    multiple &&
+    !!first.fingerprint?.exact &&
+    parts.every((p) => p.fingerprint?.exact === first.fingerprint.exact);
   const same = (key) =>
     parts.every((p) => p.review[key] === first.review[key])
       ? first.review[key]
@@ -56,11 +61,15 @@ export default function Inspector({
       <div className="panel-heading">
         <Layers size={17} />
         <h2>
-          {multiple ? `${parts.length} peças selecionadas` : "Validar uma peça"}
+          {identical
+            ? `${parts.length} peças iguais`
+            : multiple
+              ? `${parts.length} peças selecionadas`
+              : "Validar uma peça"}
         </h2>
       </div>
       <div className="inspector-content">
-        {!multiple && (
+        {(!multiple || identical) && (
           <>
             <label className="field-label" htmlFor="part-name">
               Nome da peça
@@ -81,26 +90,64 @@ export default function Inspector({
                   : "Medidas na orientação original da peça."}
               </p>
             </div>
-            <div className="suggestion">
-              <span className="eyebrow">Sugestão para conferir</span>
-              <strong>{KINDS[first.suggestion.kind] || "A classificar"}</strong>
-              <p>{first.suggestion.reason}</p>
-              <button
-                className="text-button"
-                onClick={() =>
-                  onChange({
-                    review: {
-                      kind: first.suggestion.kind,
-                      ...(first.suggestion.kind === "metalon"
-                        ? { materialId: "metalon-custom" }
-                        : {}),
-                    },
-                  })
-                }
-              >
-                Usar sugestão
-              </button>
-            </div>
+            {first.auto ? (
+              <div className={`suggestion auto ${first.auto.level}`}>
+                <span className="eyebrow">
+                  <i className={`auto-dot ${first.auto.level}`} />
+                  {
+                    {
+                      green: "Reconhecida com segurança",
+                      yellow: "Sugestão para conferir",
+                      red: "Precisa de decisão",
+                    }[first.auto.level]
+                  }{" "}
+                  ·{" "}
+                  {{
+                    memory: "memória",
+                    rules: "regras",
+                    learning: "aprendizado",
+                    "rules+learning": "regras + aprendizado",
+                  }[first.auto.source] || "regras"}{" "}
+                  · {Math.round(first.auto.confidence * 100)}%
+                </span>
+                <strong>
+                  {KINDS[first.auto.kind] || "A classificar"}
+                  {first.auto.materialId &&
+                    ` · ${materialLabel(materials.find((m) => m.id === first.auto.materialId))}`}
+                  {first.auto.finishId &&
+                    ` · ${materialLabel(materials.find((m) => m.id === first.auto.finishId))}`}
+                </strong>
+                <ul>
+                  {first.auto.reasons.map((r) => (
+                    <li key={r}>{r}</li>
+                  ))}
+                </ul>
+                {first.auto.kind !== "unclassified" && (
+                  <button
+                    className="text-button"
+                    onClick={() =>
+                      onChange({
+                        review: {
+                          kind: first.auto.kind,
+                          materialId: first.auto.materialId || "",
+                          finishId: first.auto.finishId || "",
+                        },
+                      })
+                    }
+                  >
+                    Usar sugestão
+                  </button>
+                )}
+              </div>
+            ) : (
+              <div className="suggestion">
+                <span className="eyebrow">Sugestão para conferir</span>
+                <strong>
+                  {KINDS[first.suggestion.kind] || "A classificar"}
+                </strong>
+                <p>{first.suggestion.reason}</p>
+              </div>
+            )}
           </>
         )}
         <label className="field-label" htmlFor="part-kind">

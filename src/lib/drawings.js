@@ -15,6 +15,7 @@ import {
   drawSheetPdf,
 } from "./sheet.js";
 import { overviewImage } from "./hlr.js";
+import { groupIdentical } from "./auto/index.js";
 
 // Vista cotada de uma peça (usada na tela, nos testes e no PDF).
 export function buildDrawing(part, meshMap, sourceUnit, view = "front") {
@@ -45,9 +46,21 @@ export function formatM(n) {
   });
 }
 
-/** Peças que entram no caderno: só as validadas e não ignoradas. */
+/**
+ * Peças que entram no caderno: só as validadas e não ignoradas. Peças idênticas
+ * (mesma impressão digital e mesma decisão) viram uma folha com a quantidade.
+ */
 export const sheetParts = (project) =>
-  project.parts.filter((p) => p.review.confirmed && p.review.kind !== "ignore");
+  groupIdentical(
+    project.parts.filter(
+      (p) => p.review.confirmed && p.review.kind !== "ignore",
+    ),
+  ).map((g) => ({
+    ...g.part,
+    quantity: g.quantity,
+    // Todas as cópias, para destacar na vista geral
+    allMeshIds: g.parts.flatMap((p) => p.meshIds),
+  }));
 
 const analyses = new Map();
 /** Análise da peça (vistas, linhas ocultas, raios, 3D), reaproveitada enquanto a peça não mudar. */
@@ -84,14 +97,18 @@ export function overviewSheet(
   unit = "cm",
   corner = "auto",
 ) {
-  const key = `${corner}|${project.sourceUnit}|${parts.map((p) => `${p.id}:${p.meshIds.length}`).join(",")}|${meshMap.size}`;
+  const key = `${corner}|${project.sourceUnit}|${parts.map((p) => `${p.id}:${(p.allMeshIds || p.meshIds).length}`).join(",")}|${meshMap.size}`;
   if (overviewCache.key !== key || overviewCache.meshMap !== meshMap)
     overviewCache = {
       key,
       meshMap,
-      value: overviewImage(project, meshMap, parts, project.sourceUnit, {
-        corner,
-      }),
+      value: overviewImage(
+        project,
+        meshMap,
+        parts.map((p) => (p.allMeshIds ? { ...p, meshIds: p.allMeshIds } : p)),
+        project.sourceUnit,
+        { corner },
+      ),
     };
   // `corner`: ângulo usado (0–3), para a tela poder girar a partir dele
   return {
@@ -131,7 +148,7 @@ export async function downloadPdf(
     58,
   );
   pdf.text(
-    `${preview ? "PRÉVIA, sem revisão registrada" : `Revisão ${project.revision || 0}`} | ${parts.length} peças validadas | Cotas em ${unit}`,
+    `${preview ? "PRÉVIA, sem revisão registrada" : `Revisão ${project.revision || 0}`} | ${parts.length} itens (${parts.reduce((n, p) => n + (p.quantity || 1), 0)} peças) | Cotas em ${unit}`,
     18,
     67,
   );

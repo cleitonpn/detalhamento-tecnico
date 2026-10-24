@@ -15,6 +15,15 @@ export async function loadModel(
   renderer,
   { buffer, loadTextures = !useLightweightMode(file) } = {},
 ) {
+  if (/\.skp$/i.test(file.name)) {
+    // SketchUp 2021+: leitor próprio, sem SketchUp nem conversão
+    const { loadSkp } = await import("./skp/index.js");
+    try {
+      return await loadSkp(buffer ?? (await file.arrayBuffer()));
+    } catch (error) {
+      throw Error(`Não foi possível ler o modelo do SketchUp. ${error.message}`);
+    }
+  }
   if (isCadFile(file.name)) {
     // DWG/DXF/ZIP: lido direto, sem conversão para GLB. Carregado sob demanda (wasm de ~9 MB).
     const { loadCad } = await import("./dwg/index.js");
