@@ -145,6 +145,16 @@ function describe(
   const order = [width, vertical, depth];
   dimensions = order.map((i) => dimensions[i]);
   frame.axes = order.map((i) => frame.axes[i]);
+  // A troca de eixos (e componentes espelhados) deixa o referencial invertido: a vista
+  // frontal sairia espelhada, como vista por trás. Virar a profundidade corrige e, no
+  // SketchUp, deixa a frente do componente para -Y, como na vista "Frente" dele.
+  const [ex, ey, ez] = frame.axes.map((a) => new THREE.Vector3(...a));
+  if (ex.cross(ey).dot(ez) < 0) {
+    frame.origin = frame.origin.map(
+      (n, i) => n + frame.axes[2][i] * dimensions[2],
+    );
+    frame.axes[2] = frame.axes[2].map((n) => -n);
+  }
   const min = box.min.clone().multiplyScalar(scale).toArray(),
     max = box.max.clone().multiplyScalar(scale).toArray();
   // Precisão gravada: 0,01 mm basta para medir e evita números como 0,19999998807907104
@@ -208,6 +218,67 @@ function describe(
     ),
     review: plainReview(),
   };
+}
+
+/**
+ * A frente da peça é o lado do visitante: paredes olham para dentro do stand,
+ * testeiras e painéis no alto olham para fora (para o corredor). Gira a peça
+ * 180° em torno da vertical quando a profundidade aponta para o outro lado.
+ */
+function faceVisitors(reference, parts) {
+  if (reference.length < 3) return;
+  const center = (p, k) => (p.bounds.min[k] + p.bounds.max[k]) / 2;
+  const median = (values) => values.sort((a, b) => a - b)[values.length >> 1];
+  const cx = median(reference.map((p) => center(p, 0))),
+    cz = median(reference.map((p) => center(p, 2)));
+  // Itens muito longe (luzes do render, objetos esquecidos) não definem o piso
+  const near = reference.filter(
+    (p) => Math.hypot(center(p, 0) - cx, center(p, 2) - cz) < 20,
+  );
+  const floor = Math.min(...near.map((p) => p.bounds.min[1]));
+  const upright = (p) => p.dimensions[2] < p.dimensions[1];
+  const isWall = (p) =>
+    upright(p) && p.bounds.min[1] - floor < 0.5 && p.dimensions[1] >= 1.8;
+  const walls = near.filter(isWall);
+  // Trecho de cima de uma parede (apoiado nela) olha para o mesmo lado que ela
+  const overWall = (p) =>
+    walls.some(
+      (q) =>
+        q.bounds.max[1] <= p.bounds.min[1] + 0.1 &&
+        [0, 2].every(
+          (k) =>
+            Math.min(p.bounds.max[k], q.bounds.max[k]) -
+              Math.max(p.bounds.min[k], q.bounds.min[k]) >=
+            Math.min(0.5 * (p.bounds.max[k] - p.bounds.min[k]), 0.5) - 0.05,
+        ),
+    );
+  for (const p of parts) {
+    const [w, h, d] = p.dimensions,
+      bottom = p.bounds.min[1] - floor;
+    const want = isWall(p)
+      ? 1
+      : upright(p) && bottom >= 1.8 && w >= 0.5 && h >= 0.2
+        ? overWall(p)
+          ? 1
+          : -1
+        : 0;
+    const dir = p.frame.axes[2];
+    const vx = cx - center(p, 0),
+      vz = cz - center(p, 2);
+    if (
+      !want ||
+      Math.hypot(dir[0], dir[2]) < 0.5 ||
+      Math.hypot(vx, vz) < 0.25 ||
+      (dir[0] * vx + dir[2] * vz) * want >= 0
+    )
+      continue;
+    const [ax, , az] = p.frame.axes;
+    p.frame.origin = p.frame.origin.map(
+      (n, i) => Math.round((n + ax[i] * w + az[i] * d) * 1e5) / 1e5,
+    );
+    p.frame.axes[0] = ax.map((n) => -n || 0);
+    p.frame.axes[2] = az.map((n) => -n || 0);
+  }
 }
 
 /** Agrupa pela hierarquia original. A classificação do Studio nunca é uma confirmação de construção. */
@@ -302,6 +373,7 @@ export function partitionScene(scene, sourceUnit = "m") {
       node,
     );
   });
+  faceVisitors(parts, [...parts, ...meshParts.values()]);
   return {
     parts,
     meshMap,
