@@ -26,7 +26,7 @@ para salvar de novo numa versão 2021+.
 | `9C4` → `5DC/5DE`, `9C5` | vértice: id e posição (3 doubles) |
 | `BB8` → `BB9`, `BBA` | aresta: vértice inicial e final (`BBB` = curva) |
 | `DAC` → `DAD`, `DAE/1194/1195/FA0` | face: plano (4 doubles) e laços de usos de aresta (`FA1` aresta, `FA2` invertida); o 1º laço de maior área é o contorno, os demais são furos |
-| `1964` | instância: `1965` nome, `1966` matriz (eixos X, Y, Z, origem, w), `1967` definição |
+| `1964` | instância: `1965` nome, `1966` matriz (rotação 3 × 3 **por linhas**, posição, w), `1967` definição |
 | `7D0` | cabeçalho da entidade: `5DC/5DE` id, `7D1` material, `7D2` tag, `7D3` sinalizadores |
 | `1F7/30D4/30D5/32C8` | materiais (`32CC` nome, `32CE/2134` pasta no ZIP) |
 | `1F8/3A98/3A99/3C8C` | tags (`3C8D` nome) |

@@ -95,7 +95,15 @@ function entities(defId, faces = [], instances = [], groups = []) {
       0x1964,
       header(nextId++, i.material),
       node(0x1965, txt(i.name || "")),
-      node(0x1966, f64(...i.axes.flat(), ...i.at.map((v) => v * IN), 1)),
+      // O .skp grava a rotação por linhas: transposta dos eixos (imagem de X, Y, Z)
+      node(
+        0x1966,
+        f64(
+          ...[0, 1, 2].flatMap((r) => i.axes.map((axis) => axis[r])),
+          ...i.at.map((v) => v * IN),
+          1,
+        ),
+      ),
       node(0x1967, u24(i.def)),
     );
   return node(

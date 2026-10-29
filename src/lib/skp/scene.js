@@ -82,17 +82,19 @@ export class SkpSceneBuilder {
     if (inst.matrix) {
       const m = inst.matrix,
         w = m[12] || 1;
+      // O .skp grava a rotação por linhas (m[0..2] é a 1ª linha), depois a posição e w.
+      // Lida por colunas, uma peça girada 90° ia para o lado oposto (barra fora do stand).
       group.matrix.set(
         m[0] / w,
-        m[3] / w,
-        m[6] / w,
-        m[9] / w,
         m[1] / w,
-        m[4] / w,
-        m[7] / w,
-        m[10] / w,
         m[2] / w,
+        m[9] / w,
+        m[3] / w,
+        m[4] / w,
         m[5] / w,
+        m[10] / w,
+        m[6] / w,
+        m[7] / w,
         m[8] / w,
         m[11] / w,
         0,
@@ -154,6 +156,30 @@ export class SkpSceneBuilder {
       if (!info.named && !s.big && groups.length) this.cluster(node);
       // Componente comprado ou conjunto de itens pequenos: não se divide depois
       if (groups.length) this.flatten(node, node.userData.skp?.defId);
+      return;
+    }
+    // Quadro de metalon: grupo genérico só com tubos (montantes e travessas). Detalha-se
+    // o quadro montado, não cada tubo solto
+    // Com prateleiras ou chapas entre os tubos, é uma estante de metalon (um conjunto)
+    const tubes = groups.filter((c) => this.isTube(c));
+    const sheets = groups.filter((c) => !tubes.includes(c) && this.isSheet(c));
+    const longTubes = tubes.filter(
+      (c) =>
+        Math.max(
+          ...this.sizes.get(c).box.getSize(new THREE.Vector3()).toArray(),
+        ) >= 0.6,
+    );
+    if (
+      !info.named &&
+      groups.length >= 3 &&
+      !node.children.some((c) => c.isMesh) &&
+      tubes.length + sheets.length === groups.length &&
+      longTubes.length >= 2
+    ) {
+      node.userData.dtPart = true;
+      node.userData.skpFrame = tubes.length;
+      if (sheets.length) node.userData.skpShelves = sheets.length;
+      this.flatten(node, `${node.userData.skp?.defId}|quadro`);
       return;
     }
     // Contêiner com peças de porte dentro
@@ -240,6 +266,30 @@ export class SkpSceneBuilder {
     node.clear();
     merged.forEach((m) => node.add(m));
     node.updateMatrixWorld(true);
+  }
+
+  // Tubo: grupo só com faces, seção de até 10 cm e pelo menos 30 cm de comprimento
+  isTube(node) {
+    if (node.children.some((c) => !c.isMesh)) return false;
+    const b = this.sizes.get(node)?.box;
+    if (!b || b.isEmpty()) return false;
+    const [a, m, l] = b
+      .getSize(new THREE.Vector3())
+      .toArray()
+      .sort((p, q) => p - q);
+    return a <= 0.1 && m <= 0.1 && l >= 0.15 && l / m >= 3;
+  }
+
+  // Chapa: grupo só com faces, até 3 cm de espessura (prateleira, tampo, fechamento)
+  isSheet(node) {
+    if (node.children.some((c) => !c.isMesh)) return false;
+    const b = this.sizes.get(node)?.box;
+    if (!b || b.isEmpty()) return false;
+    const [a, m] = b
+      .getSize(new THREE.Vector3())
+      .toArray()
+      .sort((p, q) => p - q);
+    return a <= 0.03 && m >= 0.15;
   }
 
   // Reúne filhos num grupo marcado como peça (mesma posição: o grupo novo não transforma)

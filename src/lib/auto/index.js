@@ -4,7 +4,13 @@
 import { partIssues, mergeMemory } from "../../domain/project.js";
 
 export { mergeMemory };
-import { classifyPart, standContext, nameFor, plausible } from "./rules.js";
+import {
+  classifyPart,
+  standContext,
+  nameFor,
+  plausible,
+  brandOf,
+} from "./rules.js";
 import { predict, sampleOf } from "./learn.js";
 import { nameKey } from "./fingerprint.js";
 
@@ -40,9 +46,12 @@ export function autoReview(
   parts,
   memory = new Map(),
   catalog = [],
-  { model = null } = {},
+  { model = null, projectName = "" } = {},
 ) {
   const ctx = standContext(parts);
+  // Marca do cliente (nome do projeto): peça com esse nome é o logo
+  ctx.brand = brandOf(projectName);
+  ctx.brandLabel = projectName;
   const known = new Set(catalog.map((m) => m.id));
   const valid = (id) => (id && (!known.size || known.has(id)) ? id : "");
   return parts.map((part) => {
@@ -252,7 +261,7 @@ export function refreshAuto(
       project.parts,
       projectMemory(project.parts, memory),
       catalog,
-      options,
+      { projectName: project.name, ...options },
     ),
   };
 }
