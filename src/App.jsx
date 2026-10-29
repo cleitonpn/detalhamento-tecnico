@@ -229,6 +229,7 @@ export default function App() {
       ...next,
       parts: autoReview(next.parts, memory.current, next.materials, {
         model: model.current,
+        projectName: next.name,
       }),
     });
     if (entries.length)

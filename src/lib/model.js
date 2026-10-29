@@ -155,12 +155,16 @@ function describe(
   const skp = frameNode?.userData?.skp;
   // Conjunto só de itens pequenos (produtos expostos), marcado pelo leitor do SketchUp
   const cluster = frameNode?.userData?.skpCluster || 0;
+  const tubes = frameNode?.userData?.skpFrame || 0,
+    shelves = frameNode?.userData?.skpShelves || 0;
   const hints =
-    skp || cluster
+    skp || cluster || tubes
       ? {
           tag: skp?.tag || "",
           definition: skp?.definition || "",
           ...(cluster ? { smallItems: cluster } : {}),
+          ...(tubes ? { frame: tubes } : {}),
+          ...(shelves ? { shelves } : {}),
         }
       : null;
   const surface = surfaceStats(meshes, scale);

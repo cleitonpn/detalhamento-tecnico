@@ -44,8 +44,9 @@ const STAND = [
 
 test("logo em letras 3D, arte com ícones e mesa sobre pés ficam fora; balcão fechado entra", () => {
   const letters = Array.from({ length: 6 }, (_, i) => letter(i * 0.3, 0, 0.08));
+  // Ícones de contorno curvo espalhados (um tubo seria uma caixa de 12 faces)
   const icons = Array.from({ length: 8 }, (_, i) =>
-    box([0.06, 0.06, 0.01, (i % 4) * 0.6, Math.floor(i / 4) * 0.9, 0]),
+    letter((i % 4) * 0.6, Math.floor(i / 4) * 0.9, 0.03),
   );
   const table = [
     box([1.4, 0.03, 1.4, 0, 0.72, 0]), // tampo
@@ -72,7 +73,7 @@ test("logo em letras 3D, arte com ícones e mesa sobre pés ficam fora; balcão 
   assert.match(logo.reasons[0], /Letras ou logo em 3D/);
   const art = of("Peça A");
   assert.equal(art.kind, "ignore");
-  assert.match(art.reasons[0], /Arte ou ícones/);
+  assert.match(art.reasons[0], /Arte ou ícones|Letras ou logo/); // comunicação visual
   const mesa = of("Peça M");
   assert.equal(mesa.kind, "ignore");
   assert.match(mesa.reasons[0], /Mesa/);
@@ -137,4 +138,27 @@ test("caderno técnico só com o essencial: TV, iluminação e itens fora não e
     ],
   });
   assert.deepEqual(sheets.map((s) => s.id).sort(), ["balcao", "parede"]);
+});
+
+test("quadro de metalon feito de tubos não é arte, mesmo vazado", () => {
+  // Moldura 1 × 2,4 m de tubos 4 × 4 cm: 4 partes, quase nada da face preenchida
+  const frame = [
+    box([0.04, 2.4, 0.04, 0, 0, 0]),
+    box([0.04, 2.4, 0.04, 0.96, 0, 0]),
+    box([0.92, 0.04, 0.04, 0.04, 0, 0]),
+    box([0.92, 0.04, 0.04, 0.04, 2.36, 0]),
+    box([0.92, 0.04, 0.04, 0.04, 1.2, 0]),
+  ];
+  const parts = scene([...STAND, ["Peça Q", frame, [2, 0, 1]]]);
+  const q = parts.find((p) => p.label === "Peça Q");
+  const r = classifyPart(q, standContext(parts));
+  assert.notEqual(r.kind, "ignore", r.reasons.join(" "));
+});
+
+test("peça com o nome da marca do cliente é o logo", async () => {
+  const { brandOf, brandMatch } = await import("../src/lib/auto/rules.js");
+  assert.equal(brandOf("Lintec"), "lintec");
+  assert.ok(brandMatch("LINTECH", "lintec"));
+  assert.ok(!brandMatch("Parede", "lintec"));
+  assert.equal(brandOf("FAZZUP-BASE - Copia"), "fazzup");
 });

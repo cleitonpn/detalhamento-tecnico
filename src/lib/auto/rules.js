@@ -142,6 +142,30 @@ export function classifyPart(part, context) {
       ],
       name: "Produtos expostos",
     };
+  // Estante de metalon (tubos + prateleiras): um conjunto construído, detalhado inteiro
+  if (part.hints?.frame && part.hints?.shelves)
+    return {
+      kind: "furniture",
+      materialId: "",
+      finishId: "",
+      confidence: 0.88,
+      reasons: [
+        `Estante de metalon com ${part.hints.shelves} prateleira(s) e ${part.hints.frame} tubos: detalhar o conjunto.`,
+      ],
+      name: `Estante de metalon ${Math.round(Math.max(w, d) * 100)} × ${Math.round(h * 100)}`,
+    };
+  // Quadro de metalon (SketchUp): montado com tubos, detalha-se o quadro inteiro
+  if (part.hints?.frame)
+    return {
+      kind: "metalon",
+      materialId: "metalon-custom",
+      finishId: "",
+      confidence: 0.9,
+      reasons: [
+        `Quadro de metalon com ${part.hints.frame} tubos (montantes e travessas).`,
+      ],
+      name: `Quadro de metalon ${Math.round(Math.max(w, d) * 100)} × ${Math.round(h * 100)}`,
+    };
   // Leitura da forma: partes soltas, preenchimento das faces, densidade da malha
   const sh = part.shape;
   const ignore = (confidence, reason, name) => ({
@@ -176,7 +200,7 @@ export function classifyPart(part, context) {
         "Logo / letreiro",
       );
     // Arte, ícones ou desenho: muitas partes pequenas espalhadas
-    if (sh.parts >= 5 && sh.main <= 0.2)
+    if (sh.parts >= 5 && sh.main <= 0.2 && sh.trisPerPart >= 30)
       return ignore(
         0.88,
         `Arte ou ícones soltos (${sh.parts} partes ocupando ${pct(sh.main)} da área): vai para o caderno de arte.`,
@@ -222,6 +246,36 @@ export function classifyPart(part, context) {
       "ignore",
       0.8,
       `Acessório de ${cm(L)} cm: pequeno demais para o detalhamento.`,
+    );
+  // Marca do cliente no nome da peça ("LINTECH" no projeto "Lintec"): é o logo
+  if (context.brand && brandMatch(part.label, context.brand))
+    add(
+      "ignore",
+      0.9,
+      `O nome da peça é a marca do cliente ("${context.brandLabel}"): logo, comunicação visual.`,
+    );
+  // Luzes do render (Enscape, V-Ray): não existem no stand
+  if (
+    /\b(enscape|vray|v-ray|pointlight|point light|spotlight|ies light|omni light|light source)\b/.test(
+      name,
+    )
+  )
+    return {
+      kind: "ignore",
+      materialId: "",
+      finishId: "",
+      confidence: 0.94,
+      reasons: ["Luz de renderização (Enscape/V-Ray): não existe no stand."],
+      name: "",
+    };
+  // Logo e letreiro pelo nome: comunicação visual
+  if (
+    /\b(logo|logos|logomarca|letreiro|letra caixa|lettering|marca)\b/.test(name)
+  )
+    add(
+      "ignore",
+      0.9,
+      "Nome indica logo ou letreiro: comunicação visual, sem detalhamento de marcenaria.",
     );
   if (/^itens pequenos$/i.test(part.label))
     add("ignore", 0.9, "Conjunto de itens pequenos (produtos expostos).");
@@ -375,9 +429,10 @@ export function classifyPart(part, context) {
     );
 
   // Revestimento: chapa muito fina (adesivo, lona, impressão)
-  if (NAME.finish.test(text) && t <= 0.02)
+  // (superfície sem espessura, como lona ou tecido impresso, já ficou como arte acima)
+  if (!surface && NAME.finish.test(text) && t <= 0.02)
     add("finish", 0.85, "Nome indica revestimento aplicado.");
-  else if (t <= 0.006 && profile[1] >= 0.3)
+  else if (!surface && t <= 0.006 && profile[1] >= 0.3)
     add("finish", 0.6, `Chapa de ${cm(t)} cm: parece adesivo ou revestimento.`);
 
   if (!out.length)
@@ -417,6 +472,40 @@ export function classifyPart(part, context) {
 }
 
 const round = (m) => Math.round(m * 100);
+// Distância de edição (poucas letras): "lintech" x "lintec" = 1
+function editDistance(a, b) {
+  const d = Array.from({ length: a.length + 1 }, (_, i) => [i]);
+  for (let j = 1; j <= b.length; j++) d[0][j] = j;
+  for (let i = 1; i <= a.length; i++)
+    for (let j = 1; j <= b.length; j++)
+      d[i][j] = Math.min(
+        d[i - 1][j] + 1,
+        d[i][j - 1] + 1,
+        d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1),
+      );
+  return d[a.length][b.length];
+}
+
+/** Marca do projeto: a primeira palavra do nome com 4+ letras ("Lintec", "FAZZUP"). */
+export function brandOf(projectName) {
+  const word = deaccent(projectName)
+    .split(/[^a-z0-9]+/)
+    .find(
+      (w) =>
+        w.length >= 4 && !/^(stand|projeto|base|copia|final|rev|det)/.test(w),
+    );
+  return word || "";
+}
+
+/** O nome da peça é a marca (igual, contém, ou difere em até 2 letras)? */
+export function brandMatch(label, brand) {
+  const n = deaccent(label).replace(/[^a-z0-9]/g, "");
+  if (!n || !brand || n.length < 4) return false;
+  return (
+    n === brand || (n.length <= brand.length + 3 && editDistance(n, brand) <= 2)
+  );
+}
+
 /**
  * A sugestão combina com as medidas? Evita absurdos vindos da memória (só medidas)
  * ou do aprendizado, como "TV" de 14 cm ou "testeira" no chão.
