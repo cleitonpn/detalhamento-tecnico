@@ -14,6 +14,7 @@ import {
   silhouettes,
   detectSlopes,
   addStations,
+  chainRuns,
 } from "./techdraw.js";
 import { classifyLines, isometricImage } from "./hlr.js";
 import { importNotice } from "./importDiagnostics.js";
@@ -354,16 +355,12 @@ export function buildSheet({
     // Cotas: parciais junto à peça, total por fora
     const bottom = oy + gh,
       left = ox;
+    // Passos repetidos (réguas, ripas) viram uma cota só: "20× 13,7"
+    const runLabel = (r) => (r.n > 1 ? `${r.n}× ${L(r.step)}` : L(r.b - r.a));
     if (v.chainX)
-      for (let i = 1; i < v.chainX.length; i++)
-        dimH(
-          X(v.chainX[i - 1]),
-          X(v.chainX[i]),
-          bottom + 5,
-          bottom + 0.8,
-          L(v.chainX[i] - v.chainX[i - 1]),
-          i % 2 === 0,
-        );
+      chainRuns(v.chainX).forEach((r, i) =>
+        dimH(X(r.a), X(r.b), bottom + 5, bottom + 0.8, runLabel(r), i % 2 === 1),
+      );
     dimH(
       X(0),
       X(v.width),
@@ -372,15 +369,9 @@ export function buildSheet({
       L(v.width),
     );
     if (v.chainY)
-      for (let i = 1; i < v.chainY.length; i++)
-        dimV(
-          Y(v.chainY[i - 1]),
-          Y(v.chainY[i]),
-          left - 5,
-          left - 0.8,
-          L(v.chainY[i] - v.chainY[i - 1]),
-          i % 2 === 0,
-        );
+      chainRuns(v.chainY).forEach((r, i) =>
+        dimV(Y(r.a), Y(r.b), left - 5, left - 0.8, runLabel(r), i % 2 === 1),
+      );
     dimV(
       Y(0),
       Y(v.height),
@@ -575,11 +566,13 @@ export function buildSheet({
           )
             pick = { n, side, off: d };
         }
-      pick ||= { n: 0, side: 1, off: 4.5 };
-      off = pick.off;
+      // Sem lugar livre para a cota completa, a folha marca só o ID (detalhes na tabela)
+      if (pick) off = pick.off;
+      // Muitas iguais (réguas de um brise): o ID em poucas, sem encavalar
+      let ids = 0;
       geo.forEach((s, n) => {
         if (s.len < 3) return;
-        if (n === pick.n) {
+        if (n === pick?.n) {
           const side = pick.side;
           const nx = s.nx * side,
             ny = s.ny * side;
@@ -623,16 +616,31 @@ export function buildSheet({
           text(...t.p, label, size, { color: DIM, bold: true, rot: s.ang });
           return;
         }
-        // Iguais: só o ID, no lado livre
+        // Iguais: só o ID, no lado livre; sem lugar, fica sem (a tabela dá a quantidade)
+        if (ids >= (pick ? 3 : 4)) return;
         const w = g.id.length * 1.9 * 0.52;
         const side = textFits(s, 1, 1.2, w)
           ? 1
           : textFits(s, -1, 1.2, w)
             ? -1
-            : 1;
+            : 0;
+        if (!side) return;
         const [px, py] = textAt(s, side, 1.2, w);
+        labels.push(textBox(s, side, 1.2, w));
+        ids++;
         text(px, py, g.id, 1.9, { color: DIM, bold: true, rot: s.ang });
       });
+      // Trechos curtos demais no papel: ao menos um ID liga o desenho à tabela
+      if (!pick && !ids) {
+        const w = g.id.length * 1.9 * 0.52;
+        const s =
+          geo.find((s) => textFits(s, 1, 1.2, w) || textFits(s, -1, 1.2, w)) ||
+          geo[0];
+        const side = textFits(s, 1, 1.2, w) ? 1 : -1;
+        const [px, py] = textAt(s, side, 1.2, w);
+        labels.push(textBox(s, side, 1.2, w));
+        text(px, py, g.id, 1.9, { color: DIM, bold: true, rot: s.ang });
+      }
     }
     if (v.hiddenOmitted)
       text(

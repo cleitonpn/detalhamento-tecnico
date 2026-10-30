@@ -79,3 +79,17 @@ test("cotas em centímetros por padrão e em milímetros quando escolhido", asyn
   );
   assert.match(mm, /2\.800×1\.000×1\.100/);
 });
+
+test("cota em cadeia: passo repetido (brise, ripado) vira uma cota só", async () => {
+  const { chainRuns } = await import("../src/lib/techdraw.js");
+  // Régua 7,2 + vão 6,5 (passo 13,7) vinte vezes, com sobras nas pontas
+  const st = [0, 0.03];
+  for (let i = 0; i < 20; i++) st.push(st.at(-1) + 0.072, st.at(-1) + 0.072 + 0.065);
+  st.push(st.at(-1) + 0.04);
+  const runs = chainRuns(st);
+  assert.ok(runs.length <= 4, JSON.stringify(runs));
+  const big = runs.find((r) => r.n >= 19);
+  assert.ok(big && Math.abs(big.step - 0.137) < 1e-6);
+  // Cotas comuns continuam uma por trecho
+  assert.equal(chainRuns([0, 0.3, 1, 1.2]).length, 3);
+});
