@@ -861,18 +861,61 @@ export function chainStations(
     if (last && v - last.v <= tol) last.w += w;
     else clusters.push({ v, w });
   }
+  const minGap = extent * 0.02;
+  const spaced = (positions) => {
+    const kept = [0];
+    for (const v of positions)
+      if (v - kept.at(-1) >= minGap && extent - v >= minGap) kept.push(v);
+    kept.push(extent);
+    return kept;
+  };
+  // Réguas, ripas e montantes em passo regular: todas as posições, pois viram uma cota só
+  const all = spaced(clusters.map((c) => c.v));
+  if (all.length > maxInner + 2 && chainRuns(all).length <= maxInner + 1)
+    return all;
   // Mantém só as posições mais sustentadas (nas formas orgânicas, poucas) e descarta trechos < 2%
   const strongest = clusters
     .sort((p, q) => q.w - p.w)
     .slice(0, maxInner)
     .map((c) => c.v)
     .sort((p, q) => p - q);
-  const minGap = extent * 0.02;
-  const kept = [0];
-  for (const v of strongest)
-    if (v - kept.at(-1) >= minGap && extent - v >= minGap) kept.push(v);
-  kept.push(extent);
+  const kept = spaced(strongest);
   return kept.length >= 3 ? kept : null;
+}
+
+/**
+ * Trechos da cota em cadeia. Espaçamentos que se repetem (réguas de um brise,
+ * ripado, montantes) viram uma cota só, do primeiro ao último: "20× 13,7".
+ * Cada trecho: { a, b, n, step } (n = repetições do passo; 1 = trecho comum).
+ */
+export function chainRuns(stations, tol = 1.5e-3) {
+  const d = stations.slice(1).map((v, i) => v - stations[i]);
+  const out = [];
+  let i = 0;
+  while (i < d.length) {
+    let best = null;
+    // Passo de 1 a 3 trechos (régua + vão, régua + vão + régua de outra largura…)
+    for (let p = 1; p <= 3; p++) {
+      let m = 1;
+      while (
+        i + (m + 1) * p <= d.length &&
+        d
+          .slice(i + m * p, i + (m + 1) * p)
+          .every((v, j) => Math.abs(v - d[i + j]) <= tol)
+      )
+        m++;
+      if (m >= 3 && (!best || m * p > best.m * best.p)) best = { p, m };
+    }
+    const span = best ? best.m * best.p : 1;
+    out.push({
+      a: stations[i],
+      b: stations[i + span],
+      n: best ? best.m : 1,
+      step: stations[i + (best ? best.p : 1)] - stations[i],
+    });
+    i += span;
+  }
+  return out;
 }
 
 export const SCALES = [
