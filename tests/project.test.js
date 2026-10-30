@@ -56,6 +56,40 @@ test("sugestão não valida peça; revisão exige material e conferência dimens
   assert.equal(progress(project).pending, 1);
   assert.equal(release.parts[0].review.notes, "");
 });
+test("propostas e versões são validadas no contrato e copiadas para revisão dimensional independente", () => {
+  let { project } = fixture();
+  project.constructionCatalog = [{ id: "material-draft", version: 1, name: "Ficha pendente", family: "rigid-sheet", parameters: {}, approved: false }];
+  project.constructionRecipes = [];
+  const construction = { schemaVersion: 1, recipeId: "wall-straight", recipeVersion: 1,
+    layers: { substrate: { id: "material-draft", version: 1 } }, parameters: {}, referenceArc: null, notes: "Proposta incompleta" };
+  project = updateParts(project, project.parts.map(p => p.id), { review: {
+    kind: "wall", materialId: "custo-492", dimensionsConfirmed: true, construction,
+  } });
+  checkProject(project);
+  project = confirmParts(project, project.parts.map(p => p.id));
+  const release = createRelease(project, 1);
+  assert.equal(release.constructionRelease, false);
+  assert.equal(release.constructionCatalog[0].name, "Ficha pendente");
+  assert.equal(release.parts[0].review.construction.notes, "Proposta incompleta");
+  project.constructionCatalog[0].name = "Alteração";
+  assert.equal(release.constructionCatalog[0].name, "Ficha pendente");
+  project.parts[0].review.construction.recipeVersion = 99;
+  assert.throws(() => checkProject(project), /não cadastrada/);
+});
+test("evidência contextual validada é preservada, exige reconferência e não aceita papel divergente", () => {
+  let { project } = fixture();
+  const ids = project.parts.map(p => p.id);
+  project = updateParts(project, ids, { review: { kind: "wall", semanticRole: "wall", materialId: "custo-492", dimensionsConfirmed: true,
+    identityEvidence: { source: "context-3", role: "wall", reason: "Painel em contato com piso identificado", fileHash: project.file.hash,
+      sourceUnit: "m", relatedPartIds: ["source-floor"], truncated: false }, identityNeedsReview: true } });
+  checkProject(project);
+  assert.throws(() => confirmParts(project, ids), /identidade contextual/);
+  project = updateParts(project, ids, { review: { identityNeedsReview: false } });
+  project = confirmParts(project, ids);
+  assert.equal(createRelease(project, 1).parts[0].review.identityEvidence.source, "context-3");
+  project.parts[0].review.identityEvidence.role = "fascia";
+  assert.throws(() => checkProject(project), /Evidência contextual/);
+});
 test("metalon é validado com as medidas externas do GLB, sem seção ou espessura manual", () => {
   let { project } = fixture();
   const ids = project.parts.map((p) => p.id);
@@ -102,6 +136,8 @@ test("metalon de um projeto antigo ignora dados de seção manual e mantém suas
 });
 test("recusa materiais desconhecidos, malhas duplicadas e revisão inválida", () => {
   const { project } = fixture();
+  assert.throws(() => checkProject({ ...project, sourceUnit: "__proto__" }), /Unidade/);
+  assert.throws(() => checkProject({ ...project, parts: project.parts.map(p => ({ ...p, review: { ...p.review, kind: "constructor" } })) }), /Classificação/);
   assert.throws(
     () =>
       checkProject({
@@ -112,6 +148,27 @@ test("recusa materiais desconhecidos, malhas duplicadas e revisão inválida", (
   );
   project.parts[0].review.materialId = "unknown";
   assert.throws(() => checkProject(project), /catálogo/);
+});
+
+test("contrato compartilhado preserva identidade/destino e valida metadados novos", () => {
+  const { project } = fixture();
+  project.parts[0].review.semanticRole = "vegetation";
+  project.parts[0].review.destination = "excluded";
+  project.importDiagnostics = { source: "cad", warnings: [{ code: "missing-faces", message: "2 faces omitidas" }] };
+  assert.doesNotThrow(() => checkProject(project));
+  assert.equal(project.parts[0].review.semanticRole, "vegetation");
+  project.parts[0].review.kind = "ignore";
+  project.parts[0].review.confirmed = true;
+  const release = createRelease(project, 1);
+  assert.equal(release.parts[0].review.semanticRole, "vegetation");
+  assert.equal(release.parts[0].review.destination, "excluded");
+  assert.equal(release.source.importDiagnostics.warnings[0].code, "missing-faces");
+  project.parts[0].review.destination = "invalid";
+  assert.throws(() => checkProject(project), /Destino inválido/);
+  project.parts[0].review.destination = "excluded";
+  project.importDiagnostics.warnings = [{ code: "bad", message: "x" }];
+  assert.throws(() => checkProject(project), /Alertas/);
+  assert.equal(release.source.importDiagnostics.warnings[0].code, "missing-faces", "revisão é independente de edições posteriores");
 });
 test("Studio exige o mesmo GLB e reaproveita nomes sem fingir validação construtiva", () => {
   const { project, analysis } = fixture(),

@@ -19,6 +19,10 @@ Aplicação independente para transformar um modelo `.glb` em um levantamento or
 - Armazenamento no navegador, reabertura de projetos e exportação/restauração dos dados de validação em JSON.
 - Registro de revisão após validar todas as peças, pacote técnico JSON e caderno dimensional em PDF.
 - Adaptador Firebase com login, espaços de trabalho, reserva de upload, salvamento com controle de concorrência e revisões imutáveis.
+- Identidade e destino separados, contexto por contato de triângulos, hierarquia navegável e evidência registrada quando uma hipótese contextual é aceita. Análise espacial em Worker, com progresso, limites e cancelamento.
+- Propostas construtivas por receita versionada: estrutura, fechamento, acabamento, montantes e componentes paramétricos (painéis, perfis, reforços e marcadores de ligação). Fichas, condições de aplicação, escopo e aprovação são informados pela equipe, não presumidos pelo sistema.
+- Curvas avaliadas por três seções da malha, com resíduo e incerteza. Candidatos cilíndricos podem fornecer desenvolvimento geométrico da referência escolhida; curvas múltiplas, cônicas e irregulares não recebem planificação circular indevida.
+- Prévia 3D e quantitativos preliminares separados das peças existentes, anexo de propostas/pendências no PDF e gabarito humano exportável para avaliação independente da classificação.
 - Contratos para associar configuração do Studio e fornecer uma referência ao app de produção. A integração automática permanece desligada até a conexão dos aplicativos.
 
 ## Escopo da primeira versão
@@ -28,6 +32,8 @@ O caderno contém medidas e vistas da geometria, materiais selecionados e observ
 O particionamento propõe conjuntos e permite corrigir o agrupamento. Não é uma operação CAD que corta um sólido arbitrário: se várias peças de fabricação foram exportadas como uma única malha conectada, será necessário preparar o modelo ou acrescentar um padrão construtivo. Modelos muito detalhados podem ter vistas de envelope simplificadas, identificadas no documento.
 
 ## Executar localmente
+
+Roteiro desta entrega: [Teste das fases 1 e 2](docs/TESTE_FASES_1_2.md). Histórico e limites: [progresso da inteligência](docs/INTELIGENCIA_PROGRESSO.md).
 
 Requisitos: Node.js 22+ e npm. Java 21 é necessário apenas para os emuladores Firebase.
 
@@ -89,7 +95,7 @@ Resultados e verificação com o GLB ECBR: [docs/VERIFICACAO.md](docs/VERIFICACA
 
 Estudo comparativo dos quatro modelos ECBR, SHELL e LOTERIAS: [docs/ESTUDO_GLB.md](docs/ESTUDO_GLB.md).
 
-Requisito e estratégia para raios e detalhamento de testeiras, balcões e paredes curvas: [docs/PECAS_CURVAS.md](docs/PECAS_CURVAS.md). O cálculo de raios ainda não está implementado.
+Requisito e estratégia para raios e detalhamento de testeiras, balcões e paredes curvas: [docs/PECAS_CURVAS.md](docs/PECAS_CURVAS.md). Há ajuste de raios em arestas e comparação de seções para propostas construtivas; isso não equivale à planificação geral de superfícies livres.
 
 ## Próximas entregas
 

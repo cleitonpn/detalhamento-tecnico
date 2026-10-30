@@ -1,5 +1,5 @@
 import { KINDS } from "../../domain/project.js";
-import { isLibraryCode } from "./fingerprint.js";
+import { isLibraryCode, evidenceName } from "./fingerprint.js";
 
 // Camada 1 — regras geométricas ("o olho do marceneiro").
 // Lê medidas, espessura, altura em relação ao piso, posição no stand, nomes e
@@ -110,7 +110,7 @@ export function classifyPart(part, context) {
   const y0 = part.bounds.min[1] - context.floorY,
     y1 = part.bounds.max[1] - context.floorY;
   const name = deaccent(
-    [part.label, part.hints?.definition, part.hints?.tag]
+    [evidenceName(part), part.hints?.definition, part.hints?.tag]
       .filter(Boolean)
       .join(" "),
   );
@@ -176,6 +176,17 @@ export function classifyPart(part, context) {
     reasons: [reason],
     name,
   });
+  // Identidade explícita precede heurísticas de fragmentação (ripas não são letras).
+  if (/\b(jardim vertical|vegetacao|folhagem|green wall|vertical garden)\b/.test(name))
+    return {
+      ...ignore(0.8, "Vegetação ou painel decorativo: suporte e destino construtivo a confirmar.", "Jardim vertical"),
+      semanticRole: "vegetation",
+    };
+  if (NAME.movable.test(name) && !NAME.counter.test(name))
+    return {
+      ...ignore(0.8, "Nome indica mobiliário. Confirme se é locado/comprado ou se deve ser fabricado e detalhado.", ""),
+      semanticRole: "furniture",
+    };
   if (sh && L >= 0.2) {
     const pct = (v) => `${Math.round(v * 100)}%`;
     // Letras ou logo em 3D: várias partes soltas, face pouco preenchida, contornos curvos
@@ -265,6 +276,7 @@ export function classifyPart(part, context) {
       materialId: "",
       finishId: "",
       confidence: 0.94,
+      semanticRole: "render",
       reasons: ["Luz de renderização (Enscape/V-Ray): não existe no stand."],
       name: "",
     };
@@ -448,6 +460,8 @@ export function classifyPart(part, context) {
   const best = out[0],
     rival = out.find((o) => o.kind !== best.kind);
   let confidence = best.score;
+  const typeConfidence = rival && best.score - rival.score < 0.1
+    ? best.score * 0.85 : best.score;
   const reasons = [best.reason];
   if (rival && best.score - rival.score < 0.1) {
     confidence *= 0.85;
@@ -467,6 +481,9 @@ export function classifyPart(part, context) {
     reasons: reasons.slice(0, 3),
     // Material lido da espessura do modelo (não é palpite)
     materialMeasured: Boolean(measured),
+    typeConfidence,
+    materialConfidence,
+    materialSource: measured ? "geometry-candidate" : "inferred",
     name: nameFor(best.kind, best.reason, part.dimensions),
   };
 }
@@ -604,13 +621,12 @@ function materials(kind, t, h, part, visual) {
         measured: true,
         note: `Chapa de ${sheet[0]} mm pela espessura do modelo (${cm(t)} cm).`,
       };
-    // Parede/testeira em caixa (estrutura + fechamento): MDF 15 mm é o padrão do stand;
-    // o caderno mostra o material para a conferência final
+    // O volume externo não revela a chapa ou a construção interna.
     return {
-      materialId: "custo-498",
+      materialId: "",
       finishId,
-      materialConfidence: kind === "other" ? 0.7 : 0.85,
-      note: `Espessura de ${cm(t)} cm (em caixa): material padrão MDF 15 mm, confira no caderno.`,
+      materialConfidence: 0,
+      note: `Envelope de ${cm(t)} cm: material e construção interna não identificados. Selecione o material após conferência.`,
     };
   }
   return { materialId: "", finishId, materialConfidence: 1 };

@@ -28,15 +28,16 @@ test("LOTERIAS: upload acima de 50 MB, modo leve, seleção e reabertura", async
   });
   await page.goto("/");
   await expect(
-    page.getByRole("button", { name: "Enviar arquivo .glb", exact: true }),
+    page.getByRole("button", { name: "Enviar modelo (.skp, .dwg ou .glb)", exact: true }),
   ).toBeEnabled();
   await expect(
-    page.getByText("Até 200 MB · Arquivos GLB 2.0", { exact: true }),
+    page.getByText(/Até 200 MB · SketchUp 2021\+, DWG, DXF, ZIP/),
   ).toBeVisible();
   await page
-    .getByLabel("Arquivo GLB", { exact: true })
+    .getByLabel("Arquivo do modelo (SKP, GLB, DWG, DXF ou ZIP)", { exact: true })
     .setInputFiles(process.env.DT_LARGE_GLB_TEST_FILE);
-  await expect(page.locator(".part-row")).toHaveCount(106, { timeout: 120000 });
+  await expect(page.locator(".part-row")).toHaveCount(60, { timeout: 120000 }); // 106 peças físicas, agrupadas por impressão e decisão
+  await expect(page.locator(".progress-summary")).toContainText("0/106");
   await expect(page.locator(".busy-overlay")).toHaveCount(0);
   await expect(page.locator(".model-stat")).toContainText("5356 malhas");
   await expect(page.locator(".model-stat")).toContainText(
@@ -71,7 +72,7 @@ test("LOTERIAS: upload acima de 50 MB, modo leve, seleção e reabertura", async
         page.evaluate(
           () =>
             new Promise((resolve, reject) => {
-              const open = indexedDB.open("detalha-workspace", 1);
+              const open = indexedDB.open("detalha-workspace");
               open.onerror = () => reject(open.error);
               open.onsuccess = () => {
                 const db = open.result;
@@ -112,7 +113,8 @@ test("LOTERIAS: upload acima de 50 MB, modo leve, seleção e reabertura", async
   await page.reload();
   await page.getByRole("button", { name: "Projetos", exact: true }).click();
   await page.locator(".library-item").first().click();
-  await expect(page.locator(".part-row")).toHaveCount(106, { timeout: 120000 });
+  await expect(page.locator(".part-row")).toHaveCount(60, { timeout: 120000 });
+  await expect(page.locator(".progress-summary")).toContainText("0/106");
   await expect(page.locator(".busy-overlay")).toHaveCount(0);
   await expect(page.locator(".model-stat")).toContainText(
     "Modo leve (sem texturas)",

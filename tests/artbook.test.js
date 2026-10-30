@@ -83,8 +83,29 @@ test("TV na frente vira interferência, medida a partir do canto superior esquer
   assert.equal(zones.length, 1);
   const [z] = zones;
   assert.equal(z.label, "TV 55");
+  assert.equal(z.kind, "obstruction", "detecção não instrui cortar a arte");
   // Olhando a frente (+z), a esquerda é x = 0: a TV começa a 100 cm da esquerda e 60 cm do topo
   assert.deepEqual([z.x, z.y, z.w, z.h], [100, 60, 120, 70]);
+});
+
+test("tipos de área não se fundem; edições manuais resistem à redetecção", async () => {
+  const { mergeZones } = await import("../src/lib/artbook.js");
+  const { refreshZones, zoneKind, zoneStyle } = await import("../src/lib/artZones.js");
+  const cutout = { id: "auto-tv", auto: false, sourceIds: ["tv"], kind: "cutout", label: "TV", x: 10, y: 10, w: 30, h: 20 };
+  const obstruction = { ...cutout, kind: "obstruction", auto: true };
+  assert.equal(mergeZones([cutout, obstruction]).length, 2);
+  assert.deepEqual(refreshZones([cutout], [obstruction]), [cutout]);
+  assert.deepEqual(refreshZones([{ ...cutout, sourceIds: undefined }], [obstruction]), [{ ...cutout, sourceIds: undefined }]);
+  assert.match(zoneStyle({ ...cutout, requiresReview: true }).title, /A CONFERIR/);
+  const legacy = { id: "old", label: "Antiga" };
+  assert.equal(zoneKind(legacy), "cutout");
+  assert.equal(legacy.kind, undefined, "não regrava silenciosamente áreas antigas");
+  const art = { ...newArt(wall, 0, front), zones: [obstruction, { ...cutout, id: "safe", kind: "safety", x: 150 }] };
+  const svg = sheetSvg(buildArtSheet({ project: { name: "Teste" }, art, part: wall, iso: null, preview: true }));
+  assert.match(svg, /OBSTRUÇÃO VISUAL/);
+  assert.match(svg, /ÁREA DE SEGURANÇA/);
+  assert.match(svg, /#b45309/);
+  assert.match(svg, /#2563eb/);
 });
 
 test("no verso só contam peças de trás, vistas espelhadas", () => {

@@ -1,3 +1,4 @@
+import { checkConstructionCatalog, constructionRecipes, checkConstructionProposal } from "./construction.js";
 // Domínio compartilhado pelo navegador e pelas Functions; sem dependência de Firebase.
 export const SCHEMA_VERSION = 1;
 export const KINDS = {
@@ -14,6 +15,40 @@ export const KINDS = {
   ignore: "Fora do detalhamento",
 };
 export const SCALE = { m: 1, cm: 0.01, mm: 0.001 };
+export const SEMANTIC_ROLES = {
+  wall: "Parede / painel", fascia: "Testeira", floor: "Piso",
+  counter: "Balcão", shelf: "Prateleira / tampo", furniture: "Mobiliário",
+  countertop: "Tampo de balcão", tabletop: "Tampo de mesa",
+  vegetation: "Vegetação / jardim vertical", logo: "Logo / comunicação visual",
+  equipment: "Equipamento", light: "Luminária", render: "Auxiliar de renderização",
+  metalon: "Perfil / estrutura", finish: "Revestimento", other: "Outro objeto",
+};
+export const DESTINATIONS = {
+  technical: "Caderno técnico", art: "Comunicação visual", furniture: "Mobiliário",
+  electrical: "Elétrica / equipamentos", excluded: "Fora da entrega", pending: "A decidir",
+};
+export function destinationOf(part) {
+  const r = part.review || {};
+  return r.destination || ({ ignore: "excluded", equipment: "electrical", light: "electrical",
+    unclassified: "pending" }[r.kind] || "technical");
+}
+export function semanticRoleOf(part) {
+  if (part.review?.semanticRole) return part.review.semanticRole;
+  // Na primeira versão, "furniture" designava marcenaria no tipo e mobiliário
+  // comprado no papel semântico. Preserva a leitura de balcões já salvos.
+  if (part.review?.kind === "furniture" && part.auto?.semanticRole === "furniture")
+    return "counter";
+  if (SEMANTIC_ROLES[part.auto?.semanticRole]) return part.auto.semanticRole;
+  return ({ furniture: "counter", ignore: "other", unclassified: "other" }[part.review?.kind]
+    || part.review?.kind || "other");
+}
+
+const IMPORT_WARNING_CODES = new Set(["unit-mismatch", "missing-faces", "missing-solids", "solid-read-failure", "skp-missing-faces"]);
+export function checkImportWarnings(warnings) {
+  if (!Array.isArray(warnings) || warnings.length > 5 || warnings.some(w =>
+    !w || !IMPORT_WARNING_CODES.has(w.code) || typeof w.message !== "string" || w.message.length > 600))
+    throw Error("Alertas de importação inválidos.");
+}
 export const MAX_FILE_MB = 200;
 export const MAX_FILE_BYTES = MAX_FILE_MB * 1024 * 1024;
 export const MAX_PARTS = 5000;
@@ -46,9 +81,19 @@ export function assertId(value, label = "Identificador") {
 export function partIssues(part) {
   const r = part.review || {},
     issues = [];
-  if (!KINDS[r.kind] || r.kind === "unclassified")
+  if (!Object.hasOwn(KINDS, r.kind) || r.kind === "unclassified")
     issues.push("Escolha o tipo da peça.");
   if (!cleanText(part.label)) issues.push("Informe o nome da peça.");
+  if (r.destination && !Object.hasOwn(DESTINATIONS, r.destination))
+    issues.push("Destino inválido.");
+  if (r.semanticRole && !Object.hasOwn(SEMANTIC_ROLES, r.semanticRole))
+    issues.push("Identidade inválida.");
+  if (r.destination === "pending") issues.push("Decida o destino da peça.");
+  if (r.identityEvidence && r.identityNeedsReview) issues.push("Confira novamente a identidade contextual após a mudança de escala.");
+  if (destinationOf(part) === "technical" && r.kind === "ignore")
+    issues.push("Escolha um tipo técnico para incluir esta peça no caderno.");
+  if (part.importWarnings?.length && destinationOf(part) === "technical" && !r.importReviewed)
+    issues.push("Confira os alertas de unidade/geometria do arquivo.");
   if (r.kind === "ignore") return issues;
   if (
     !part.dimensions?.every((n) => Number.isFinite(n) && n >= 0) ||
@@ -57,7 +102,7 @@ export function partIssues(part) {
     issues.push("Medidas inválidas.");
   if (!r.dimensionsConfirmed)
     issues.push("Confira as medidas e a unidade do modelo.");
-  if (MATERIAL_REQUIRED.has(r.kind) && !r.materialId)
+  if (destinationOf(part) === "technical" && MATERIAL_REQUIRED.has(r.kind) && !r.materialId)
     issues.push("Selecione o material de construção.");
   return issues;
 }
@@ -102,7 +147,7 @@ export function confirmParts(project, ids) {
     status: "review",
     parts: project.parts.map((p) =>
       selected.has(p.id)
-        ? { ...p, review: { ...p.review, confirmed: true } }
+        ? { ...p, review: { ...p.review, confirmed: true, confirmationMethod: "individual" } }
         : p,
     ),
   };
@@ -167,9 +212,16 @@ export function checkModelHeader(format, header, bytes) {
 export function checkProject(project) {
   if (!project || project.schemaVersion !== SCHEMA_VERSION)
     throw Error("Versão do projeto incompatível.");
+  if (project.importDiagnostics) {
+    if (!["cad", "skp", "glb"].includes(project.importDiagnostics.source))
+      throw Error("Origem de importação inválida.");
+    checkImportWarnings(project.importDiagnostics.warnings);
+  }
   assertId(project.id, "Projeto");
   if (!cleanText(project.name)) throw Error("Informe o nome do projeto.");
-  if (!SCALE[project.sourceUnit]) throw Error("Unidade do modelo inválida.");
+  if (!Object.hasOwn(SCALE, project.sourceUnit)) throw Error("Unidade do modelo inválida.");
+  checkConstructionCatalog(project.constructionCatalog);
+  constructionRecipes(project.constructionRecipes);
   if (!/^[a-f0-9]{64}$/.test(project.file?.hash || ""))
     throw Error("Identidade do modelo ausente.");
   modelFormat(project.file.name);
@@ -236,7 +288,26 @@ export function checkProject(project) {
       !part.dimensions.every((n) => Number.isFinite(n) && n >= 0)
     )
       throw Error("Dimensões inválidas.");
-    if (!KINDS[part.review?.kind]) throw Error("Classificação inválida.");
+    if (!Object.hasOwn(KINDS, part.review?.kind)) throw Error("Classificação inválida.");
+    const evidence = part.review.identityEvidence;
+    if (evidence != null && (!evidence || Array.isArray(evidence) || typeof evidence !== "object" ||
+      Object.keys(evidence).some(k => !["source", "role", "reason", "fileHash", "sourceUnit", "relatedPartIds", "truncated"].includes(k)) ||
+      evidence.source !== "context-3" || evidence.role !== part.review.semanticRole || !Object.hasOwn(SEMANTIC_ROLES, evidence.role) ||
+      typeof evidence.reason !== "string" || evidence.reason.length > 1200 || !/^[a-f0-9]{64}$/.test(evidence.fileHash) || evidence.fileHash !== project.file.hash ||
+      !Object.hasOwn(SCALE, evidence.sourceUnit) || !Array.isArray(evidence.relatedPartIds) || evidence.relatedPartIds.length > 20 ||
+      evidence.relatedPartIds.some(id => typeof id !== "string" || !id.length || id.length > 200) || typeof evidence.truncated !== "boolean"))
+      throw Error("Evidência contextual inválida ou incompatível com a peça/arquivo.");
+    if (part.review.identityNeedsReview != null && typeof part.review.identityNeedsReview !== "boolean") throw Error("Conferência da identidade inválida.");
+    if (part.review.construction != null) checkConstructionProposal(part.review.construction, {
+      catalog: project.constructionCatalog, recipes: project.constructionRecipes,
+    });
+    if (part.review.constructionNeedsReview != null && typeof part.review.constructionNeedsReview !== "boolean")
+      throw Error("Conferência construtiva inválida.");
+    if (part.importWarnings) checkImportWarnings(part.importWarnings);
+    if (part.review.destination && !Object.hasOwn(DESTINATIONS, part.review.destination))
+      throw Error("Destino inválido.");
+    if (part.review.semanticRole && !Object.hasOwn(SEMANTIC_ROLES, part.review.semanticRole))
+      throw Error("Identidade inválida.");
     if (
       !Array.isArray(part.materialsOriginal) ||
       part.materialsOriginal.some(
@@ -343,10 +414,13 @@ export function createRelease(
       source: {
         file: project.file,
         sourceUnit: project.sourceUnit,
+        ...(project.importDiagnostics ? { importDiagnostics: project.importDiagnostics } : {}),
         integration: project.integration || null,
       },
       parts: project.parts,
       materials: project.materials || [],
+      constructionCatalog: project.constructionCatalog || [],
+      constructionRecipes: project.constructionRecipes || [],
       artifacts: [],
     }),
   );

@@ -47,6 +47,15 @@ test("vista geral sem WebGL avisa em vez de quebrar", () => {
   assert.match(sheetSvg({ items }), /indisponível/);
 });
 
+test("alertas de unidade e geometria acompanham a folha, não apenas a interface", () => {
+  const warned = { ...project, importDiagnostics: { source: "cad", warnings: [
+    { code: "unit-mismatch", message: "Unidade a conferir" },
+    { code: "missing-faces", message: "Faces omitidas" },
+  ] } };
+  const sheet = buildOverview({ project: warned, parts: [], overview: null, preview: true });
+  assert.match(sheetSvg(sheet), /ALERTA DO ARQUIVO: unidade divergente; geometria possivelmente incompleta/);
+});
+
 test("cotas em centímetros por padrão e em milímetros quando escolhido", async () => {
   const { fmtLen } = await import("../src/lib/techdraw.js");
   assert.equal(fmtLen(1.612), "161,2");

@@ -1,10 +1,24 @@
 import { Check, Layers, Split, Info } from "lucide-react";
-import { KINDS, materialLabel, partIssues } from "../domain/project.js";
+import { KINDS, materialLabel, partIssues, SEMANTIC_ROLES, DESTINATIONS, semanticRoleOf, destinationOf } from "../domain/project.js";
+import ImportWarnings from "./ImportWarnings.jsx";
+import { inferContextRole, contextFacts } from "../lib/context/relations.js";
+import { hierarchySummary } from "../lib/context/hierarchy.js";
 import { formatM } from "../lib/drawings.js";
+import ConstructionPanel from "./ConstructionPanel.jsx";
 
 export default function Inspector({
   parts,
   materials,
+  importWarnings,
+  relations,
+  relationAnalysis,
+  hierarchy,
+  projectParts = [],
+  project,
+  analysis,
+  onCatalog,
+  onHierarchy,
+  onPreview,
   onChange,
   onConfirm,
   onMerge,
@@ -47,7 +61,7 @@ export default function Inspector({
     parts.every((p) => p.review[key] === first.review[key])
       ? first.review[key]
       : "";
-  const review = (key, value) => onChange({ review: { [key]: value } });
+  const review = (key, value) => onChange({ review: { [key]: value, ...(key === "semanticRole" ? { identityEvidence: null, identityNeedsReview: false } : {}) } });
   const kind = same("kind");
   const construction = materials.filter((m) =>
     kind === "metalon" ? m.family === "metal" : m.family !== "finish",
@@ -56,6 +70,9 @@ export default function Inspector({
     (m) => m.family === "finish" || m.family === "wood",
   );
   const issue = parts.flatMap((p) => partIssues(p))[0];
+  const neighbors = relations?.neighbors.get(first.id) || [];
+  const contextual = inferContextRole(first, relations, projectParts);
+  const structure = hierarchySummary(first, hierarchy), facts = contextFacts(first, relations, projectParts);
   return (
     <aside className="inspector">
       <div className="panel-heading">
@@ -69,6 +86,10 @@ export default function Inspector({
         </h2>
       </div>
       <div className="inspector-content">
+        <ImportWarnings warnings={importWarnings} />
+        {relationAnalysis?.busy && <div role="status" aria-label="Análise de contexto em andamento">{relationAnalysis.testedPairs ? `Analisando contatos: ${relationAnalysis.testedPairs} pares verificados` : `Preparando contatos: ${relationAnalysis.percent}%`} <button className="text-button" onClick={relationAnalysis.cancel}>Cancelar análise de contexto</button></div>}
+        {relationAnalysis?.error && <div className="helper" role="status">{relationAnalysis.error} <button className="text-button" onClick={relationAnalysis.restart}>Reanalisar contexto</button></div>}
+        {relations?.geometryPreparationLimited && <p className="helper">A análise espacial omitiu geometria por limite de preparação. Ausência de contato não comprova separação.</p>}
         {(!multiple || identical) && (
           <>
             <label className="field-label" htmlFor="part-name">
@@ -96,7 +117,7 @@ export default function Inspector({
                   <i className={`auto-dot ${first.auto.level}`} />
                   {
                     {
-                      green: "Reconhecida com segurança",
+                      green: "Evidência forte para conferir",
                       yellow: "Sugestão para conferir",
                       red: "Precisa de decisão",
                     }[first.auto.level]
@@ -108,7 +129,7 @@ export default function Inspector({
                     learning: "aprendizado",
                     "rules+learning": "regras + aprendizado",
                   }[first.auto.source] || "regras"}{" "}
-                  · {Math.round(first.auto.confidence * 100)}%
+                  · evidência de tipo {Math.round((first.auto.scores?.type ?? first.auto.confidence) * 100)}/100
                 </span>
                 <strong>
                   {KINDS[first.auto.kind] || "A classificar"}
@@ -117,6 +138,12 @@ export default function Inspector({
                   {first.auto.finishId &&
                     ` · ${materialLabel(materials.find((m) => m.id === first.auto.finishId))}`}
                 </strong>
+                <p>
+                  {first.auto.materialId
+                    ? `Material: hipótese a conferir${first.auto.scores?.material != null ? ` · evidência ${Math.round(first.auto.scores.material * 100)}/100` : ""}.`
+                    : "Material: não identificado ou não aplicável."}
+                  {" "}A pontuação não é uma probabilidade de acerto. Medidas e solução construtiva exigem conferência própria.
+                </p>
                 <ul>
                   {first.auto.reasons.map((r) => (
                     <li key={r}>{r}</li>
@@ -174,6 +201,64 @@ export default function Inspector({
             </option>
           ))}
         </select>
+        <label className="field-label" htmlFor="part-role">Identidade do objeto</label>
+        <select id="part-role" value={same("semanticRole") || ""} onChange={e => review("semanticRole", e.target.value)}>
+          <option value="">{multiple ? "Seguir leitura de cada peça" : `Automática: ${SEMANTIC_ROLES[semanticRoleOf(first)]}`}</option>
+          {Object.entries(SEMANTIC_ROLES).map(([id, name]) => <option key={id} value={id}>{name}</option>)}
+        </select>
+        <label className="field-label" htmlFor="part-destination">Destino da peça</label>
+        <select id="part-destination" value={same("destination") || ""} onChange={e => review("destination", e.target.value)}>
+          <option value="">{multiple ? "Seguir classificação de cada peça" : `Seguir classificação: ${DESTINATIONS[destinationOf(first)]}`}</option>
+          {Object.entries(DESTINATIONS).map(([id, name]) => <option key={id} value={id}>{name}</option>)}
+        </select>
+        <p className="helper">A identidade permanece registrada mesmo quando o objeto fica fora do caderno técnico.</p>
+        {!multiple && structure && <div className="helper" aria-label="Hierarquia do modelo">
+          {structure.meshes} malha(s) vinculada(s) à peça · {structure.repeated} ocorrência(s) com a mesma impressão geométrica.
+          <p>Hierarquia da cena e repetição não comprovam construção ou aprovação das cópias.</p>
+          {structure.partial && <p>Hierarquia parcial: limite de nós atingido.</p>}
+          <button className="text-button" onClick={onHierarchy}>Explorar hierarquia do modelo</button>
+        </div>}
+        {!multiple && facts.map(f => <p className="helper" key={`${f.relation}:${f.otherId}`}>{f.text}</p>)}
+        {!multiple && neighbors.length > 0 && (
+          <div className="context-relations helper" aria-label="Relações espaciais">
+            <strong>Contexto geométrico</strong>
+            <ul>{neighbors.slice(0, 6).map(e => {
+              const other = projectParts.find(p => p.id === (e.a === first.id ? e.b : e.a));
+              return <li key={JSON.stringify([e.a, e.b])}>
+                {other?.label || "Peça"}: {e.verified
+                  ? `contato ${ {horizontal: "horizontal", lateral: "lateral", inclined: "inclinado"}[e.orientation] || "geométrico"} compatível (tolerância ${relations.contactTolerance * 1000} mm)`
+                  : "envelopes próximos; contato não confirmado"}.
+              </li>;
+            })}</ul>
+            <p>Contato geométrico não verifica suporte estrutural, fixação ou capacidade de carga.</p>
+            {relations.truncated && <p>Análise parcial: limite de pares atingido.</p>}
+            {relations.geometryPreparationLimited && <p>Análise parcial: limite de preparação da geometria atingido. Nenhuma geometria omitida foi reconstruída por suposição.</p>}
+            {neighbors.some(e => e.geometryTruncated) && <p>Análise parcial de superfícies: não encontrar contato não comprova separação.</p>}
+          </div>
+        )}
+        {!multiple && contextual && (
+          <div className="suggestion">
+            <strong>{SEMANTIC_ROLES[contextual.role]} — hipótese contextual</strong>
+            <p>{contextual.reason}</p>
+            <button className="text-button" onClick={() => onChange({ review: { semanticRole: contextual.role, identityNeedsReview: false,
+              identityEvidence: { source: "context-3", role: contextual.role, reason: contextual.reason, fileHash: project.file.hash,
+                sourceUnit: project.sourceUnit, relatedPartIds: neighbors.filter(e => e.verified).slice(0, 20).map(e => e.a === first.id ? e.b : e.a),
+                truncated: neighbors.filter(e => e.verified).length > 20 } } })}>Usar identidade contextual</button>
+          </div>
+        )}
+        {!multiple && first.review.identityEvidence && <div className="helper" aria-label="Evidência da identidade contextual">
+          <p>Decisão humana a partir de {first.review.identityEvidence.source}: {first.review.identityEvidence.reason}</p>
+          <p>Arquivo {first.review.identityEvidence.fileHash.slice(0, 12)} · unidade {first.review.identityEvidence.sourceUnit} · {first.review.identityEvidence.relatedPartIds.length} vínculos registrados{first.review.identityEvidence.truncated ? " (lista parcial)" : ""}.</p>
+          {first.review.identityNeedsReview && <label className="check-field"><input type="checkbox" checked={false} onChange={() => review("identityNeedsReview", false)} />Conferi novamente a identidade contextual após mudar a escala.</label>}
+          <button className="text-button" onClick={() => onChange({ review: { identityEvidence: null, identityNeedsReview: false } })}>Descartar evidência contextual, mantendo a identidade</button>
+        </div>}
+        {parts.some(p => p.importWarnings?.length && destinationOf(p) === "technical") && (
+          <label className="check-field">
+            <input type="checkbox" checked={parts.every(p => p.review.importReviewed)}
+              onChange={e => review("importReviewed", e.target.checked)} />
+            <span>Conferi os alertas do arquivo e a geometria das peças selecionadas.</span>
+          </label>
+        )}
         {kind !== "ignore" && (
           <>
             <label className="field-label" htmlFor="part-material">
@@ -242,6 +327,8 @@ export default function Inspector({
           A geometria e o acabamento visual não informam sozinhos a construção
           interna.
         </p>
+        {!multiple && project && <ConstructionPanel key={first.id} project={project} part={first} analysis={analysis}
+          onChange={patch => onChange({ review: patch })} onCatalog={onCatalog} onPreview={onPreview} />}
         <button
           className="button primary full"
           disabled={Boolean(issue)}

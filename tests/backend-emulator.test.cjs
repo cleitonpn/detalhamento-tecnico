@@ -107,6 +107,8 @@ test("Functions: workspace, upload verificado, concorrência, publicação e iso
     revision: 0,
     status: "review",
     materials: [],
+    constructionCatalog: [{ id: "draft", version: 1, name: "Ficha pendente", family: "rigid-sheet", parameters: {}, approved: false }],
+    constructionRecipes: [],
     parts: [
       {
         id: "part_1",
@@ -118,11 +120,16 @@ test("Functions: workspace, upload verificado, concorrência, publicação e iso
         suggestion: { kind: "equipment", reason: "Fixture" },
         review: {
           kind: "equipment",
+          semanticRole: "equipment",
+          identityEvidence: { source: "context-3", role: "equipment", reason: "Evidência sintética para testar persistência, não classificação validada", fileHash: hash,
+            sourceUnit: "m", relatedPartIds: [], truncated: false },
           materialId: "",
           finishId: "",
           notes: "",
           dimensionsConfirmed: true,
           confirmed: true,
+          construction: { schemaVersion: 1, recipeId: "wall-straight", recipeVersion: 1,
+            layers: { substrate: { id: "draft", version: 1 } }, parameters: {}, referenceArc: null, notes: "Proposta pendente, não fabricação" },
         },
       },
     ],
@@ -130,6 +137,10 @@ test("Functions: workspace, upload verificado, concorrência, publicação e iso
   const saved = (await call("dt_saveProject", { project, expectedVersion: 0 }))
     .project;
   assert.equal(saved.version, 1);
+  assert.equal(saved.constructionCatalog[0].id, "draft");
+  assert.equal(saved.parts[0].review.construction.notes, "Proposta pendente, não fabricação");
+  assert.equal(saved.parts[0].review.identityEvidence.source, "context-3");
+  await assert.rejects(call("dt_saveProject", { project: { ...saved, constructionCatalog: [{ ...saved.constructionCatalog[0], name: "Sobrescrita indevida" }] }, expectedVersion: 1 }), /Preserve/);
   // DWG direto: assinatura AC10xx, tipo de conteúdo próprio e mesma verificação de identidade
   const dwgBytes = Buffer.concat([
     Buffer.from("AC1032", "latin1"),
@@ -160,6 +171,7 @@ test("Functions: workspace, upload verificado, concorrência, publicação e iso
         id: "project_dwg",
         name: "Fixture DWG",
         file: dwgFile,
+        parts: project.parts.map(p => ({ ...p, review: { ...p.review, identityEvidence: { ...p.review.identityEvidence, fileHash: dwgFile.hash } } })),
       },
       expectedVersion: 0,
     })
@@ -187,6 +199,9 @@ test("Functions: workspace, upload verificado, concorrência, publicação e iso
   assert.equal(read.project.version, 2);
   assert.equal(read.release.revision, 1);
   assert.equal(read.release.source.file.hash, hash);
+  assert.equal(read.release.constructionCatalog[0].id, "draft");
+  assert.equal(read.release.parts[0].review.construction.recipeVersion, 1);
+  assert.equal(read.release.parts[0].review.identityEvidence.fileHash, hash);
   const outsider = client("outsider");
   await createUserWithEmailAndPassword(
     outsider.auth,

@@ -11,7 +11,7 @@ import {
 import * as THREE from "three";
 import { SCALE } from "../domain/project.js";
 
-function Model({ scene, project, selected, isolate, xray, onSelect }) {
+function Model({ scene, project, selected, isolate, xray, onSelect, onFaceSelect }) {
   const { invalidate } = useThree();
   const model = useMemo(() => scene.clone(true), [scene]);
   const materials = useMemo(() => {
@@ -77,7 +77,10 @@ function Model({ scene, project, selected, isolate, xray, onSelect }) {
           const part = project.parts.find((p) =>
             p.meshIds.includes(event.object.userData.dtPath),
           );
-          if (part)
+          if (part && onFaceSelect && event.face) {
+            const normal = event.face.normal.clone().applyNormalMatrix(new THREE.Matrix3().getNormalMatrix(event.object.matrixWorld));
+            onFaceSelect(part, event.point.toArray(), normal.toArray());
+          } else if (part)
             onSelect(part.id, event.shiftKey || event.ctrlKey || event.metaKey);
         }}
       />
@@ -87,12 +90,12 @@ function Model({ scene, project, selected, isolate, xray, onSelect }) {
 
 function CameraRig({ project, selected, view, focusTick }) {
   const { camera, controls, invalidate, size: viewport } = useThree();
-  const previous = useRef("");
+  const previous = useRef(null);
   useEffect(() => {
-    if (!project || !controls) return;
+    if (!project || !controls || controls.object !== camera) return;
     const key = `${project.id}:${project.sourceUnit}:${view}:${focusTick}:${viewport.width}:${viewport.height}`;
-    if (previous.current === key) return;
-    previous.current = key;
+    if (previous.current?.key === key && previous.current.camera === camera && previous.current.controls === controls) return;
+    previous.current = { key, camera, controls };
     const parts =
       focusTick && selected.length
         ? project.parts.filter((p) => selected.includes(p.id))
@@ -191,6 +194,33 @@ function SelectionBox({ project, selected }) {
   return helper ? <primitive object={helper} /> : null;
 }
 
+function ProposedAxes({ project, preview }) {
+  const lines = useMemo(() => {
+    const part = project.parts.find(p => p.id === preview.partId);
+    if (!part?.frame || preview.status !== "reference-only") return null;
+    const toWorld = p => new THREE.Vector3(...part.frame.origin).add(
+      new THREE.Vector3(...part.frame.axes[0]).multiplyScalar(p[0])).add(
+      new THREE.Vector3(...part.frame.axes[1]).multiplyScalar(p[1])).add(
+      new THREE.Vector3(...part.frame.axes[2]).multiplyScalar(p[2]));
+    const points = preview.members.flatMap(m => [toWorld(m.start), toWorld(m.end)]);
+    for (const panel of preview.panels || []) {
+      const corners = Array.from({ length: 8 }, (_, n) => panel.center.map((v, k) => v + (n & (1 << k) ? 1 : -1) * panel.size[k] / 2));
+      for (let n = 0; n < 8; n++) for (let k = 0; k < 3; k++) if (!(n & (1 << k))) points.push(toWorld(corners[n]), toWorld(corners[n | (1 << k)]));
+    }
+    for (const connection of preview.connections || []) for (let k = 0; k < 3; k++) {
+      const a = [...connection.center], b = [...connection.center]; a[k] -= .025; b[k] += .025;
+      points.push(toWorld(a), toWorld(b));
+    }
+    const geometry = new THREE.BufferGeometry().setFromPoints(points);
+    const material = new THREE.LineDashedMaterial({ color: "#fb923c", depthTest: false, dashSize: .08, gapSize: .04, transparent: true, opacity: .95 });
+    const result = new THREE.LineSegments(geometry, material);
+    result.computeLineDistances(); result.renderOrder = 1000; result.raycast = () => {};
+    return result;
+  }, [project, preview]);
+  useEffect(() => () => { lines?.geometry.dispose(); lines?.material.dispose(); }, [lines]);
+  return lines ? <primitive object={lines} dispose={null} /> : null;
+}
+
 export default function Viewer({
   scene,
   project,
@@ -201,6 +231,8 @@ export default function Viewer({
   xray,
   onSelect,
   onReady,
+  onFaceSelect,
+  proposalPreview,
 }) {
   return (
     <Canvas
@@ -241,9 +273,10 @@ export default function Viewer({
       />
       {scene && project && (
         <>
-          <Model {...{ scene, project, selected, isolate, xray, onSelect }} />
+          <Model {...{ scene, project, selected, isolate, xray, onSelect, onFaceSelect }} />
           <CameraRig {...{ project, selected, view, focusTick }} />
           <SelectionBox {...{ project, selected }} />
+          {proposalPreview && <ProposedAxes project={project} preview={proposalPreview} />}
         </>
       )}
       <GizmoHelper alignment="bottom-right" margin={[70, 65]}>

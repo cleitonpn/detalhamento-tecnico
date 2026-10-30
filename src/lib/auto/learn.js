@@ -4,6 +4,8 @@
 // guarda as características da peça e a decisão humana; correções (quando o humano
 // mudou a sugestão) pesam mais, porque mostram onde as regras erram.
 
+import { evidenceName } from "./fingerprint.js";
+
 const deaccent = (s) =>
   String(s || "")
     .normalize("NFD")
@@ -75,7 +77,7 @@ export function sampleOf(part, ctx, project = {}) {
     tris: part.surface?.tris || 0,
     area: part.surface?.area || 0,
     text: [
-      part.label,
+      evidenceName(part),
       part.hints?.definition,
       part.hints?.tag,
       ...(part.materialsOriginal || []),

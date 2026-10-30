@@ -1,0 +1,161 @@
+import { test, expect } from "@playwright/test";
+
+test("proposta usa catálogo versionado, explicita pendências e persiste junto do projeto", async ({ page }, info) => {
+  test.setTimeout(120000);
+  await page.goto("/");
+  await page.getByRole("button", { name: /Explorar uma demonstração/ }).click();
+  await page.locator(".part-row").filter({ hasText: "Parede de fundo" }).click();
+  await page.locator(".construction-panel summary").click();
+  await page.getByLabel("Receita construtiva", { exact: true }).selectOption("wall-straight@1");
+  await expect(page.getByLabel("Pendências construtivas")).toContainText("Proposta incompleta");
+  await expect(page.getByLabel("Pendências construtivas")).toContainText("Espaçamento");
+  await page.getByRole("button", { name: "Catálogo e padrões construtivos", exact: true }).click();
+  await page.getByLabel("Nome do cadastro").fill("Perfil de teste — não usar em produção");
+  await page.getByLabel("Largura da seção (mm)").fill("30");
+  await page.getByLabel("Altura da seção (mm)").fill("40");
+  await page.getByLabel("Fonte técnica / documento").fill("Ficha sintética para teste");
+  await page.getByLabel("Responsável pela aprovação").fill("Teste automatizado");
+  await page.getByLabel("A equipe aprovou esta versão").check();
+  await page.getByRole("button", { name: "Salvar nova versão", exact: true }).click();
+  await expect(page.locator(".modal [role=status]")).toContainText("Versões anteriores preservadas");
+  await page.getByLabel("Nome do cadastro").fill("Perfil de teste revisado");
+  await page.getByRole("button", { name: "Salvar nova versão", exact: true }).click();
+  await expect(page.getByLabel("Base para nova versão").locator("option")).toHaveCount(3);
+  await page.getByLabel("Tipo de cadastro").selectOption("recipe");
+  await page.getByLabel("Base para nova versão").selectOption("wall-straight@1");
+  await page.getByLabel("Nome do cadastro").fill("Parede de teste");
+  await page.getByLabel("Distribuir montantes verticais:").check();
+  await page.getByLabel("Fonte técnica / documento").fill("Procedimento sintético");
+  await page.getByLabel("Responsável pela aprovação").fill("Teste automatizado");
+  await page.getByLabel("A equipe aprovou esta versão").check();
+  await page.getByRole("button", { name: "Salvar nova versão", exact: true }).click();
+  await expect(page.locator(".modal [role=status]")).toContainText("v2");
+  await page.getByRole("button", { name: "Fechar janela", exact: true }).click();
+  await page.getByLabel("Receita construtiva", { exact: true }).selectOption("wall-straight@2");
+  await page.getByLabel("Estrutura da proposta").selectOption({ label: "Perfil de teste — não usar em produção · v1 · aprovado" });
+  await page.getByLabel("Altura a conferir (m)").fill("2.9");
+  await page.getByLabel("Notas da proposta").fill("Conferir fechamento e espaçamento antes de executar");
+  await expect(page.getByLabel("Pendências construtivas")).toContainText("Material da camada fechamento");
+  await expect(page.getByLabel("Pendências construtivas")).toContainText("Não libera fabricação");
+  await page.screenshot({ path: info.outputPath("proposta-construtiva.png") });
+  await expect(page.getByText("Salvo neste navegador", { exact: true })).toBeVisible();
+  await page.reload();
+  await page.getByRole("button", { name: "Projetos", exact: true }).click();
+  await page.locator(".library-item").first().click();
+  await page.locator(".part-row").filter({ hasText: "Parede de fundo" }).click();
+  await page.locator(".construction-panel summary").click();
+  await expect(page.getByLabel("Receita construtiva", { exact: true })).toHaveValue("wall-straight@2");
+  await expect(page.getByLabel("Estrutura da proposta")).toHaveValue(/@1$/);
+  await expect(page.getByLabel("Altura a conferir (m)")).toHaveValue("2.9");
+  await expect(page.getByLabel("Notas da proposta")).toHaveValue("Conferir fechamento e espaçamento antes de executar");
+  await page.getByRole("button", { name: "Catálogo e padrões construtivos", exact: true }).click();
+  await page.getByLabel("Nome do cadastro").fill("Chapa de teste aprovada");
+  await page.getByLabel("Família construtiva").selectOption("rigid-sheet");
+  await page.getByLabel("Espessura (mm)").fill("9");
+  await page.getByLabel("Fonte técnica / documento").fill("Ficha sintética, não usar em produção");
+  await page.getByLabel("Responsável pela aprovação").fill("Testes");
+  await page.getByLabel("A equipe aprovou esta versão").check();
+  await page.getByRole("button", { name: "Salvar nova versão", exact: true }).click();
+  await page.getByRole("button", { name: "Fechar janela", exact: true }).click();
+  await page.getByLabel("Fechamento da proposta").selectOption({ label: "Chapa de teste aprovada · v1 · aprovado" });
+  await page.getByLabel("Espaçamento aprovado da estrutura (m)").fill("0.5");
+  await page.getByLabel("Folga aprovada (m)").fill("0.05");
+  await page.getByLabel("Perda configurada (fração 0–1)").fill("0.1");
+  await page.getByLabel("Largura a conferir (m)").fill("6");
+  await page.getByLabel("Referência reta para estrutura", { exact: true }).selectOption("L1");
+  await page.getByLabel("Confirmei a linha do fechamento").check();
+  await page.getByLabel("Conferi a estrutura já modelada.").check();
+  await expect(page.getByLabel("Quantitativos preliminares")).toContainText("13 montantes propostos");
+  await expect(page.getByText("Salvo neste navegador", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Mostrar eixos propostos no 3D", exact: true }).click();
+  await expect(page.getByLabel("Estrutura proposta no 3D")).toContainText("13 eixos propostos");
+  await page.screenshot({ path: info.outputPath("estrutura-proposta-3d.png") });
+  await page.getByLabel(/Conferi as medidas/).check();
+  await page.getByLabel("Material de construção", { exact: true }).selectOption("custo-492");
+  await page.getByRole("button", { name: "Validar peça", exact: true }).click();
+  await page.getByRole("button", { name: "Caderno técnico", exact: false }).click();
+  await page.locator(".drawing-item").filter({ hasText: "Parede de fundo" }).click();
+  await page.locator(".construction-document summary").click();
+  await expect(page.locator(".construction-document")).toContainText("NÃO LIBERA FABRICAÇÃO");
+  await expect(page.locator(".construction-document")).toContainText("Conferir fechamento e espaçamento");
+  await expect(page.locator(".construction-document")).toContainText("13 montantes propostos");
+  const download = page.waitForEvent("download");
+  await page.getByRole("button", { name: /Baixar.*PDF/ }).click();
+  expect((await download).suggestedFilename()).toMatch(/\.pdf$/);
+});
+
+test("arco de malha conhecida exige referência explícita e não vira plano de corte", async ({ page }) => {
+  const errors = [];
+  page.on("pageerror", e => errors.push(e.message));
+  await page.goto("/");
+  const glb = await page.evaluate(async () => {
+    const THREE = await import("/node_modules/three/build/three.module.js");
+    const { GLTFExporter } = await import("/node_modules/three/examples/jsm/exporters/GLTFExporter.js");
+    const scene = new THREE.Scene();
+    const mesh = new THREE.Mesh(new THREE.CylinderGeometry(2, 2, 3, 48, 1, false, 0, Math.PI / 2), new THREE.MeshStandardMaterial());
+    mesh.name = "Parede curva sintética"; scene.add(mesh);
+    return Array.from(new Uint8Array(await new GLTFExporter().parseAsync(scene, { binary: true })));
+  });
+  await expect(page.getByRole("button", { name: "Enviar modelo (.skp, .dwg ou .glb)" })).toBeEnabled();
+  await page.getByLabel("Arquivo do modelo (SKP, GLB, DWG, DXF ou ZIP)", { exact: true }).setInputFiles({
+    name: "curva-sintetica.glb", mimeType: "model/gltf-binary", buffer: Buffer.from(glb),
+  });
+  await page.locator(".part-row").first().click();
+  await page.locator(".construction-panel summary").click();
+  await page.getByLabel("Receita construtiva", { exact: true }).selectOption("wall-curved@1");
+  await expect(page.getByRole("combobox", { name: "Arco de referência", exact: true }).locator("option")).toHaveCount(2);
+  await page.getByRole("combobox", { name: "Arco de referência", exact: true }).selectOption("top:S1");
+  await expect(page.getByText(/R × ângulo = 3,142 m/)).toBeVisible();
+  await expect(page.getByLabel("Pendências construtivas")).toContainText("canto arredondado");
+  await page.getByLabel("Confirmei que este arco representa").check();
+  await expect(page.getByLabel("Pendências construtivas")).not.toContainText("canto arredondado");
+  await expect(page.getByLabel("Pendências construtivas")).toContainText("Proposta incompleta");
+  await expect(page.getByText("Não é comprimento de corte.", { exact: false })).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+test("receita explícita de balcão mostra painéis, travessa, reforço e marcador de ligação separados do modelo", async ({ page }, info) => {
+  test.setTimeout(150000);
+  await page.goto("/"); await page.getByRole("button", { name: /Explorar uma demonstração/ }).click();
+  await page.locator(".part-row").filter({ hasText: "Balcão" }).click();
+  await page.locator(".construction-panel summary").click();
+  await page.getByRole("button", { name: "Catálogo e padrões construtivos", exact: true }).click();
+  for (const [name, family] of [["Perfil componentes teste", "timber-profile"], ["Chapa componentes teste", "rigid-sheet"]]) {
+    await page.getByLabel("Base para nova versão").selectOption("");
+    await page.getByLabel("Nome do cadastro").fill(name);
+    await page.getByLabel("Família construtiva").selectOption(family);
+    if (family === "timber-profile") {
+      await page.getByLabel("Largura da seção (mm)").fill("30"); await page.getByLabel("Altura da seção (mm)").fill("40");
+    } else await page.getByLabel("Espessura (mm)").fill("9");
+    await page.getByLabel("Fonte técnica / documento").fill("Ficha sintética, não usar em produção");
+    await page.getByLabel("Responsável pela aprovação").fill("Teste"); await page.getByLabel("A equipe aprovou esta versão").check();
+    await page.getByRole("button", { name: "Salvar nova versão", exact: true }).click();
+  }
+  await page.getByLabel("Tipo de cadastro").selectOption("recipe");
+  await page.getByLabel("Base para nova versão").selectOption("counter@1");
+  await page.getByLabel("Nome do cadastro").fill("Balcão sintético por componentes");
+  await page.getByText("Componentes paramétricos da receita", { exact: true }).click();
+  await page.getByRole("button", { name: "Carregar esboço de balcão não aprovado", exact: true }).click();
+  const editor = page.getByLabel("Definição dos componentes (JSON)");
+  const rules = JSON.parse(await editor.inputValue()), vector = (...v) => v.map(n => ({ terms: [], offsetM: n }));
+  rules.push({ id: "rail", name: "Travessa de referência", kind: "profile", layer: "structure", start: vector(0, 0, 0), end: vector(2, 0, 0) },
+    { id: "brace", name: "Reforço de referência", kind: "brace", layer: "structure", start: vector(0, 0, 0), end: vector(2, 1, 0) },
+    { id: "joint", name: "Ligação de referência", kind: "connection", layer: "structure", center: vector(0, 0, 0), detail: "Documento sintético J1; marcador não dimensiona parafuso" });
+  await editor.fill(JSON.stringify(rules));
+  await page.getByLabel("Fonte técnica / documento").fill("Procedimento sintético de teste");
+  await page.getByLabel("Responsável pela aprovação").fill("Teste"); await page.getByLabel("A equipe aprovou esta versão").check();
+  await page.getByRole("button", { name: "Salvar nova versão", exact: true }).click();
+  await expect(page.locator(".modal [role=status]")).toContainText("v2");
+  await page.getByRole("button", { name: "Fechar janela", exact: true }).click();
+  await page.getByLabel("Receita construtiva", { exact: true }).selectOption("counter@2");
+  await page.getByLabel("Estrutura da proposta").selectOption({ label: "Perfil componentes teste · v1 · aprovado" });
+  await page.getByLabel("Fechamento da proposta").selectOption({ label: "Chapa componentes teste · v1 · aprovado" });
+  for (const [label, n] of [["Altura a conferir (m)", "1"], ["Largura a conferir (m)", "2"], ["Profundidade a conferir (m)", "0.5"],
+    ["Espaçamento aprovado da estrutura (m)", "0.5"], ["Folga aprovada (m)", "0.01"], ["Perda configurada (fração 0–1)", "0.1"]]) await page.getByLabel(label).fill(n);
+  await expect(page.getByLabel("Análise de construção em andamento")).toHaveCount(0, { timeout: 20000 });
+  await page.getByLabel("Conferi a estrutura já modelada.").check();
+  await expect(page.getByLabel("Quantitativos preliminares")).toContainText("4 painéis · 2 perfis/reforços · 1 marcadores de ligação");
+  await page.getByRole("button", { name: "Mostrar componentes propostos no 3D", exact: true }).click();
+  await expect(page.getByLabel("Estrutura proposta no 3D")).toContainText("4 painéis");
+  await page.screenshot({ path: info.outputPath("balcao-componentes.png") });
+});

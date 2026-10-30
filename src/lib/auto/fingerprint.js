@@ -53,6 +53,13 @@ export function nameKey(name) {
   return n.replace(/(?:\s*\(\d+\)|\s+\d+)$/, "").trim();
 }
 
+/** Nome importado ou editado pelo humano; sugestões geradas não são evidência. */
+export function evidenceName(part) {
+  if (part.auto?.name && part.label === part.auto.name)
+    return part.originalLabel ?? "";
+  return part.label || "";
+}
+
 /** Chaves da impressão digital a partir das medidas, da superfície e do nome. */
 export function fingerprint({ dimensions, tris, area, name }) {
   const sorted = [...dimensions].sort((p, q) => p - q);

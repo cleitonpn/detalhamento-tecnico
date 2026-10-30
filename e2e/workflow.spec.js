@@ -8,7 +8,7 @@ test("validação humana, revisão, PDF e persistência local", async ({
   page.on("pageerror", (e) => errors.push(e.message));
   await page.goto("/");
   await page.getByRole("button", { name: /Explorar uma demonstração/ }).click();
-  await expect(page.locator(".part-row")).toHaveCount(8); // 10 peças, pilares iguais num item
+  await expect(page.locator(".part-row")).toHaveCount(8, { timeout: 20000 }); // aguarda a importação assíncrona; 10 peças, pilares iguais num item
   await page.screenshot({
     path: testInfo.outputPath("modelo.png"),
     fullPage: true,
@@ -92,7 +92,7 @@ test("validação humana, revisão, PDF e persistência local", async ({
   await page.reload();
   await page.getByRole("button", { name: "Projetos", exact: true }).click();
   await page.locator(".library-item").first().click();
-  await expect(page.locator(".progress-summary")).toContainText("10/10");
+  await expect(page.locator(".progress-summary")).toContainText("10/10", { timeout: 20000 });
   await expect(page.getByLabel("Nome do projeto")).toHaveValue(
     "Stand demonstrativo",
   );
@@ -122,7 +122,7 @@ test("GLB real ECBR: balcão e quatro testeiras preservam as medidas", async ({
     page.getByRole("button", { name: "Enviar modelo (.skp, .dwg ou .glb)" }),
   ).toBeEnabled();
   await page
-    .getByLabel("Arquivo GLB", { exact: true })
+    .getByLabel("Arquivo do modelo (SKP, GLB, DWG, DXF ou ZIP)", { exact: true })
     .setInputFiles(process.env.DT_GLB_TEST_FILE);
   await expect(page.locator(".part-row").first()).toBeVisible({
     timeout: 45000,
@@ -136,7 +136,17 @@ test("GLB real ECBR: balcão e quatro testeiras preservam as medidas", async ({
   const fascia = page
     .locator(".part-row")
     .filter({ hasText: "3,00 × 1,00 × 0,03" });
-  await expect(fascia).toHaveCount(4);
+  await expect(fascia).toHaveCount(1); // linha agrupada, não redução das peças físicas
+  await expect(fascia.locator("em")).toHaveText("×4");
+  await page.getByRole("button", { name: "Dados do projeto", exact: true }).click();
+  const exportedProject = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Exportar validação", exact: true }).click();
+  const saved = JSON.parse(await readFile(await (await exportedProject).path(), "utf8"));
+  const physicalFascias = saved.parts.filter(p => p.review.kind === "fascia" &&
+    p.dimensions.every((n, i) => Math.abs(n - [3, 1, .03][i]) < .001));
+  expect(physicalFascias).toHaveLength(4);
+  expect(new Set(physicalFascias.map(p => p.id)).size).toBe(4);
+  await page.getByRole("button", { name: "Fechar janela", exact: true }).click();
   await page
     .getByRole("button", { name: "Enquadrar seleção", exact: true })
     .click();
@@ -157,7 +167,7 @@ test("validação também fica acessível em tela pequena", async ({
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/");
   await page.getByRole("button", { name: /Explorar uma demonstração/ }).click();
-  await expect(page.locator(".part-row")).toHaveCount(8); // 10 peças, pilares iguais num item
+  await expect(page.locator(".part-row")).toHaveCount(8, { timeout: 20000 }); // aguarda a importação assíncrona; 10 peças, pilares iguais num item
   await page.locator(".part-row").filter({ hasText: "Balcão" }).click();
   await expect(page.getByLabel("O que é esta peça?")).toBeVisible();
   await page.screenshot({
@@ -174,7 +184,7 @@ test("uma parede requer material, medidas e confirmação; alteração invalida 
 }, testInfo) => {
   await page.goto("/");
   await page.getByRole("button", { name: /Explorar uma demonstração/ }).click();
-  await expect(page.locator(".part-row")).toHaveCount(8); // 10 peças, pilares iguais num item
+  await expect(page.locator(".part-row")).toHaveCount(8, { timeout: 20000 }); // aguarda a importação assíncrona; 10 peças, pilares iguais num item
   await page
     .locator(".part-row")
     .filter({ hasText: "Parede de fundo" })

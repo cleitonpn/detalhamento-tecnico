@@ -77,6 +77,7 @@ export function splitPart(project, id, meshParts) {
     return {
       ...source,
       id: crypto.randomUUID(),
+      ...(part.importWarnings ? { importWarnings: part.importWarnings } : {}),
       review: { ...source.review, confirmed: false },
     };
   });

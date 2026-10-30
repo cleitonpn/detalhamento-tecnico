@@ -1,4 +1,4 @@
-import { materialLabel } from "../domain/project.js";
+import { materialLabel, destinationOf } from "../domain/project.js";
 import {
   VIEW_DEFS,
   partEdges,
@@ -16,6 +16,7 @@ import {
 } from "./sheet.js";
 import { overviewImage } from "./hlr.js";
 import { groupIdentical } from "./auto/index.js";
+import { constructionReport, appendConstructionPdf } from "./construction/report.js";
 
 // Vista cotada de uma peça (usada na tela, nos testes e no PDF).
 export function buildDrawing(part, meshMap, sourceUnit, view = "front") {
@@ -57,7 +58,7 @@ export const OUTSIDE = new Set(["ignore", "equipment", "light"]);
 export const sheetParts = (project) =>
   groupIdentical(
     project.parts.filter(
-      (p) => p.review.confirmed && !OUTSIDE.has(p.review.kind),
+      (p) => p.review.confirmed && destinationOf(p) === "technical",
     ),
   ).map((g) => ({
     ...g.part,
@@ -66,15 +67,17 @@ export const sheetParts = (project) =>
     allMeshIds: g.parts.flatMap((p) => p.meshIds),
   }));
 
-const analyses = new Map();
+const analyses = new WeakMap();
 /** Análise da peça (vistas, linhas ocultas, raios, 3D), reaproveitada enquanto a peça não mudar. */
 export function partAnalysis(part, meshMap, sourceUnit) {
-  const key = `${part.id}|${sourceUnit}|${part.meshIds.join(",")}|${part.dimensions.join(",")}`;
-  if (!analyses.has(key)) {
-    if (analyses.size > 60) analyses.delete(analyses.keys().next().value);
-    analyses.set(key, analyzePart(part, meshMap, sourceUnit));
+  if (!analyses.has(meshMap)) analyses.set(meshMap, new Map());
+  const cache = analyses.get(meshMap);
+  const key = `${part.id}|${sourceUnit}|${part.meshIds.join(",")}|${part.dimensions.join(",")}|${JSON.stringify(part.frame)}`;
+  if (!cache.has(key)) {
+    if (cache.size > 60) cache.delete(cache.keys().next().value);
+    cache.set(key, analyzePart(part, meshMap, sourceUnit));
   }
-  return analyses.get(key);
+  return cache.get(key);
 }
 
 export function partSheet(project, part, meshMap, index, preview, unit = "cm") {
@@ -191,6 +194,7 @@ export async function downloadPdf(
   for (const [index, part] of parts.entries()) {
     pdf.addPage();
     drawSheetPdf(pdf, partSheet(project, part, meshMap, index, preview, unit));
+    appendConstructionPdf(pdf, constructionReport(project, part, partAnalysis(part, meshMap, project.sourceUnit)));
   }
   pdf.save(
     `${project.name.replace(/[^p{L}p{N} _-]/gu, "").slice(0, 80)}-${preview ? "PREVIA" : `R${project.revision || 0}`}.pdf`,

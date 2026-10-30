@@ -12,8 +12,11 @@ import {
   overviewSheet,
   partSheet,
   sheetParts,
+  partAnalysis,
 } from "../lib/drawings.js";
 import { sheetSvg } from "../lib/sheet.js";
+import ImportWarnings from "./ImportWarnings.jsx";
+import { constructionReport } from "../lib/construction/report.js";
 
 export function downloadJson(value, name) {
   const url = URL.createObjectURL(
@@ -85,6 +88,9 @@ export default function Drawings({
   const index = parts.findIndex((x) => x.id === partId);
   const part = index >= 0 ? parts[index] : null;
   const preview = !release || project.status !== "validated";
+  const proposalReport = useMemo(() => part?.review.construction && sheet
+    ? constructionReport(project, part, partAnalysis(part, analysis.meshMap, project.sourceUnit)) : null,
+  [project, part, analysis, sheet]);
 
   useEffect(() => {
     if (!parts.length) {
@@ -130,6 +136,7 @@ export default function Drawings({
           Voltar à validação <ArrowRight size={16} />
         </button>
       </div>
+      <ImportWarnings warnings={project.importDiagnostics?.warnings} />
       <div className="document-status">
         <CheckCircle2 size={22} />
         <div>
@@ -141,9 +148,7 @@ export default function Drawings({
                 : "Nenhuma peça validada ainda"}
           </strong>
           <p>
-            Só entra o que o stand constrói: peças sem validação, TV,
-            equipamentos, iluminação de terceiros e itens fora do detalhamento
-            (logos, artes, móveis prontos) não aparecem aqui.{" "}
+            Entram as peças validadas com destino “Caderno técnico”. Objetos destinados a arte, mobiliário, elétrica ou fora da entrega mantêm sua identidade no projeto.{" "}
             {release
               ? `${parts.length} itens (${units} peças) no caderno.`
               : p.pending
@@ -211,6 +216,9 @@ export default function Drawings({
           )}
         </aside>
         <div className="drawing-paper sheet-paper">
+          {proposalReport && <details className="construction-document"><summary>Solução proposta e pendências (anexo do PDF)</summary>
+            {proposalReport.lines.map((line, i) => <p key={i}>{line}</p>)}
+          </details>}
           {!parts.length ? (
             <p>As folhas técnicas aparecem aqui depois da validação.</p>
           ) : sheet ? (

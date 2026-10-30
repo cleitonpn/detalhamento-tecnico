@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { onAuthStateChanged, signOut } from "firebase/auth";
 import {
   Upload,
@@ -26,6 +26,13 @@ import Inspector from "./components/Inspector.jsx";
 import Drawings, { downloadJson } from "./components/Drawings.jsx";
 import Export3D from "./components/Export3D.jsx";
 import ArtBook from "./components/ArtBook.jsx";
+import ConstructionCatalog from "./components/ConstructionCatalog.jsx";
+import HierarchyBrowser from "./components/HierarchyBrowser.jsx";
+import ClassificationBenchmark from "./components/ClassificationBenchmark.jsx";
+import { preserveConstructionHistory } from "./lib/construction/index.js";
+import { importDiagnostics } from "./lib/importDiagnostics.js";
+import { useRelations } from "./lib/context/useRelations.js";
+import { buildHierarchy } from "./lib/context/hierarchy.js";
 import Login from "./components/Login.jsx";
 import materials from "./data/materials.json";
 import {
@@ -79,6 +86,7 @@ const signature = ({ version, updatedAt, updatedBy, ...project }) =>
   JSON.stringify(project);
 
 export default function App() {
+  const [proposalPreview, setProposalPreview] = useState(null);
   const [user, setUser] = useState(null),
     [authReady, setAuthReady] = useState(!cloudMode);
   const [project, setProject] = useState(null),
@@ -117,6 +125,7 @@ export default function App() {
     retrain = useRef(0);
   const currentScene = useRef(null),
     requestId = useRef(0);
+  useEffect(() => setProposalPreview(null), [project ? signature(project) : "", selected]);
   const repository = cloudMode ? cloudRepository : localRepository;
   const ready = useCallback((gl) => setRenderer(gl), []);
 
@@ -288,7 +297,7 @@ export default function App() {
         : { past: [...h.past, project], future: h.future.slice(1) },
     );
     setProject({
-      ...target,
+      ...preserveConstructionHistory(project, target),
       version: project.version,
       revision: project.revision,
       status: "review",
@@ -334,10 +343,16 @@ export default function App() {
         nextScene,
         restored?.sourceUnit || nextScene.userData.dtSourceUnit || "m",
       );
-      const base = restored || {
+      const diagnostics = importDiagnostics(nextScene.userData);
+      const base = restored ? {
+        ...restored,
+        importDiagnostics: restored.importDiagnostics || diagnostics,
+      } : {
         ...newProject(sourceFile, { ...nextAnalysis, hash }),
         sourceUnit: nextScene.userData.dtSourceUnit || "m",
         materials,
+        importDiagnostics: diagnostics,
+        parts: nextAnalysis.parts.map(p => ({ ...p, importWarnings: diagnostics.warnings })),
       };
       // Camadas 1 e 2: memória de peças já validadas + regras geométricas
       setBusy("Reconhecendo as peças (memória e regras)…");
@@ -428,9 +443,9 @@ export default function App() {
       if (!restored) {
         const st = autoStats(next);
         const learned = model.current
-          ? ` Aprendizado: modelo treinado com ${model.current.size} peças validadas${model.current.accuracy != null ? ` (acerto estimado ${Math.round(model.current.accuracy * 100)}%)` : ""}.`
+          ? ` Aprendizado: modelo treinado com ${model.current.size} peças validadas${model.current.accuracy != null ? ` (estimativa interna ${Math.round(model.current.accuracy * 100)}%, não mede projetos novos)` : ""}.`
           : "";
-        const summary = `Reconhecimento automático: ${st.green} peça(s) prontas para aceitar, ${st.yellow} para conferir e ${st.red} para decidir.${learned}`;
+        const summary = `Reconhecimento automático: ${st.green} peça(s) com evidência forte (confira os campos), ${st.yellow} para conferir e ${st.red} para decidir.${learned}`;
         setNotice((current) => (current ? `${current} ${summary}` : summary));
       }
     } catch (e) {
@@ -471,6 +486,10 @@ export default function App() {
   }
   const p = progress(project),
     selectedParts = project?.parts.filter((p) => selected.includes(p.id)) || [];
+  const geometryKey = JSON.stringify(project?.parts.map(p => [p.id, p.meshIds, p.bounds]) || []);
+  const relationAnalysis = useRelations(project, analysis, geometryKey);
+  const relations = relationAnalysis.graph;
+  const hierarchy = useMemo(() => project ? buildHierarchy(project.parts) : null, [geometryKey, analysis]);
   const visible =
     project?.parts.filter(
       (p) =>
@@ -757,10 +776,10 @@ export default function App() {
                   {!part.review.confirmed && part.auto && (
                     <i
                       className={`auto-dot ${part.auto.level}`}
-                      title={`${Math.round(part.auto.confidence * 100)}% · ${part.auto.reasons[0]}`}
+                      title={`Evidência de tipo ${Math.round(part.auto.confidence * 100)}/100 · ${part.auto.reasons[0]}`}
                       aria-label={
                         {
-                          green: "Pronta para aceitar",
+                          green: "Evidência forte; conferir campos",
                           yellow: "Conferir",
                           red: "Decidir",
                         }[part.auto.level]
@@ -792,7 +811,7 @@ export default function App() {
               <div className="auto-accept">
                 <p>
                   <i className="auto-dot green" /> {greenPending(project)}{" "}
-                  peça(s) reconhecidas com segurança (memória ou regras).
+                  peça(s) com evidência forte e campos conferidos.
                 </p>
                 <button
                   className="button primary full"
@@ -801,7 +820,7 @@ export default function App() {
                     if (!r.count) return;
                     commitValidated(r.project, project);
                     setNotice(
-                      `${r.count} peça(s) aceitas com as medidas do modelo. Revise as amarelas e vermelhas no filtro Conferir.`,
+                      `${r.count} peça(s) aceitas com conferência dimensional prévia. Este lote não alimenta a memória nem o aprendizado.`,
                     );
                   }}
                 >
@@ -822,7 +841,7 @@ export default function App() {
                 <p className="helper">
                   Aprendizado: {model.current.size} peças validadas
                   {model.current.accuracy != null &&
-                    ` · acerto estimado ${Math.round(model.current.accuracy * 100)}%`}
+                    ` · estimativa interna ${Math.round(model.current.accuracy * 100)}% (não mede projetos novos)`}
                 </p>
               )}
               {(() => {
@@ -850,6 +869,7 @@ export default function App() {
         >
           <Viewer
             {...{ scene, project, selected, view, focusTick, isolate, xray }}
+            proposalPreview={proposalPreview}
             onSelect={select}
             onReady={ready}
           />
@@ -983,6 +1003,10 @@ export default function App() {
                 <strong>{project.sourceUnit}</strong>
                 {scene?.userData.dtLightweight && " · Modo leve (sem texturas)"}
               </div>
+              {proposalPreview && <div className="proposal-legend" role="status" aria-label="Estrutura proposta no 3D">
+                Laranja: {proposalPreview.members.length} eixos propostos{proposalPreview.panels?.length ? ` · ${proposalPreview.panels.length} painéis` : ""}{proposalPreview.connections?.length ? ` · ${proposalPreview.connections.length} marcadores de ligação` : ""} — não são peças existentes nem liberação de fabricação.
+                <button className="text-button" onClick={() => setProposalPreview(null)}>Ocultar proposta</button>
+              </div>}
             </>
           )}
           {busy && (
@@ -996,12 +1020,22 @@ export default function App() {
           <Inspector
             parts={selectedParts}
             materials={project.materials}
+            importWarnings={project.importDiagnostics?.warnings}
+            relations={relations}
+            relationAnalysis={relationAnalysis}
+            hierarchy={hierarchy}
+            projectParts={project.parts}
+            project={project}
+            analysis={analysis}
+            onCatalog={() => setModal("construction")}
+            onHierarchy={() => setModal("hierarchy")}
+            onPreview={setProposalPreview}
             onChange={(patch) => edit(updateParts(project, selected, patch))}
             onConfirm={() => {
               try {
                 commitValidated(confirmParts(project, selected), project);
                 setNotice(
-                  "Peças validadas e guardadas na memória. Peças idênticas foram atualizadas.",
+                  "Peças validadas. Identidade e destino foram preservados.",
                 );
               } catch (e) {
                 setError(e.message);
@@ -1031,6 +1065,7 @@ export default function App() {
         <ArtBook
           project={project}
           analysis={analysis}
+          scene={scene}
           onBack={() => setTab("validate")}
           onError={setError}
           onNotice={setNotice}
@@ -1071,7 +1106,9 @@ export default function App() {
                 ? "Projetos salvos"
                 : modal === "project"
                   ? "Dados do projeto"
-                  : "Integrações"
+                  : modal === "construction" ? "Catálogo e padrões construtivos"
+                  : modal === "hierarchy" ? "Hierarquia do modelo"
+                  : modal === "benchmark" ? "Gabarito humano da classificação" : "Integrações"
             }
             onClick={(e) => e.stopPropagation()}
           >
@@ -1142,10 +1179,17 @@ export default function App() {
                 )}
               </>
             )}
+            {modal === "construction" && project && <ConstructionCatalog project={project} onChange={edit} />}
+            {modal === "hierarchy" && project && <HierarchyBrowser hierarchy={hierarchy} project={project} scene={scene} onSelect={id => { setSelected([id]); setTab("validate"); setModal(null); }} />}
+            {modal === "benchmark" && project && <ClassificationBenchmark key={`${project.id}:${project.sourceUnit}`} project={project} />}
             {modal === "project" && project && (
               <>
                 <span className="eyebrow">Identificação e escala</span>
                 <h2>Dados do projeto</h2>
+                <div className="modal-actions">
+                  <button className="button secondary" onClick={() => setModal("hierarchy")}>Explorar hierarquia do modelo</button>
+                  <button className="button secondary" onClick={() => setModal("benchmark")}>Revisar gabarito da classificação</button>
+                </div>
                 <label>
                   Cliente / expositor
                   <input
@@ -1191,7 +1235,10 @@ export default function App() {
                             review: {
                               ...p.review,
                               dimensionsConfirmed: false,
+                              importReviewed: false,
                               confirmed: false,
+                              ...(p.review.construction ? { constructionNeedsReview: true } : {}),
+                              ...(p.review.identityEvidence ? { identityNeedsReview: true } : {}),
                             },
                           };
                         }),

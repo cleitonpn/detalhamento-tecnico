@@ -47,6 +47,17 @@ const STAND = [
   ["Garrafa esquecida", 0.3, 0.3, 0.3, 60, 0, 60], // longe do stand
 ];
 
+test("peças com receitas ou conferências construtivas diferentes não compartilham folha", () => {
+  const [part] = autoReview(scene(STAND), new Map(), catalog);
+  const copy = structuredClone(part); copy.id = "outra-copia";
+  copy.review.construction = { schemaVersion: 1, recipeId: "wall-straight", recipeVersion: 1, layers: {}, parameters: {} };
+  assert.equal(groupIdentical([part, copy]).length, 2);
+  const same = structuredClone(copy); same.id = "terceira-copia";
+  assert.equal(groupIdentical([copy, same]).length, 1);
+  same.review.constructionNeedsReview = true;
+  assert.equal(groupIdentical([copy, same]).length, 2);
+});
+
 test("nome automático não identifica; sufixo de cópia é ignorado", () => {
   assert.equal(nameKey("Peça 12"), "");
   assert.equal(nameKey("Agrupar#7"), "");
@@ -206,10 +217,16 @@ test("validar uma peça propaga para as idênticas, e o lote aceita só as verde
   assert.ok(
     others.every((p) => p.auto.level === "green" && p.auto.source === "memory"),
   );
-  const pending = greenPending(project);
-  assert.ok(pending >= 4);
+  assert.equal(greenPending({ parts: others }), 0, "memória não confirma medidas de outras instâncias");
+  project = {
+    ...project,
+    parts: project.parts.map(p => others.some(q => q.id === p.id)
+      ? { ...p, review: { ...p.review, dimensionsConfirmed: true } } : p),
+  };
+  const eligible = greenPending(project);
+  assert.ok(eligible >= 4);
   const { project: done, count } = acceptGreen(project);
-  assert.equal(count, pending);
+  assert.equal(count, eligible);
   assert.ok(
     others.every((p) => done.parts.find((q) => q.id === p.id).review.confirmed),
   );
@@ -219,7 +236,7 @@ test("validar uma peça propaga para as idênticas, e o lote aceita só as verde
   );
   const st = autoStats(done);
   assert.equal(st.rate, 100);
-  assert.ok(memoryEntries(done.parts).length >= 5);
+  assert.deepEqual(memoryEntries(done.parts), memoryEntries(project.parts), "lote não reforça a própria memória");
 });
 
 test("memória só aceita decisões válidas", () => {

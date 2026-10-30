@@ -6,6 +6,11 @@ import { buildOverview, drawSheetPdf } from "./sheet.js";
 import { overviewImage } from "./hlr.js";
 import { partAnalysis } from "./drawings.js";
 import { fmtLen, partTriangles } from "./techdraw.js";
+import { importNotice } from "./importDiagnostics.js";
+import { createSpatialIndex } from "./context/spatial.js";
+import { zoneKind, zoneStyle } from "./artZones.js";
+import { artEligibility } from "./artEligibility.js";
+import { semanticRoleOf } from "../domain/project.js";
 
 const PAGE = { w: 297, h: 210 };
 const M = 8;
@@ -14,7 +19,6 @@ const INK = "#173b48",
   SOFT = "#7c8794",
   MARKER = "#ea580c",
   CUT = "#dc2626",
-  CUT_FILL = "#fde4e4",
   BLEED = "#9932cc",
   GUIDE = "#2563eb";
 
@@ -497,7 +501,7 @@ const pickFace = (f) => ({
 
 /**
  * Interferências automáticas: peças à frente da face escolhida (TV, prateleira,
- * balcão…) viram áreas de corte, em cm, com origem no canto superior esquerdo da
+ * balcão…) viram obstruções visuais, em cm, com origem no canto superior esquerdo da
  * arte, como quem olha para a face. Com `trianglesOf` (peça → triângulos no mundo)
  * mede a geometria real dentro do contorno da face; sem ela, a caixa envolvente.
  * Não contam: revestimento fino que cobre boa parte da face (painel, chapa),
@@ -507,7 +511,7 @@ export function autoZones(
   art,
   wall,
   parts,
-  { reach = 0.5, minDepth = 0.03, trianglesOf } = {},
+  { reach = 0.5, minDepth = 0.03, trianglesOf, spatialIndex } = {},
 ) {
   const face = art.face;
   // Artes antigas guardavam a face como texto ("front"/"back"): sem plano, só áreas manuais
@@ -519,8 +523,10 @@ export function autoZones(
   const grid = faceGrid(face);
   let inFace = null; // células dentro do contorno, calculadas na primeira necessidade
   const zones = [];
-  for (const q of parts) {
-    if (q.id === wall.id || q.review?.kind === "ignore") continue;
+  const index = spatialIndex || createSpatialIndex(parts);
+  for (const q of index.query(wall.bounds, reach)) {
+    if (q.id === wall.id || artEligibility(q).blocked ||
+      (q.review?.kind === "ignore" && !["furniture", "vegetation"].includes(semanticRoleOf(q)))) continue;
     const pts = [];
     for (let i = 0; i < 8; i++)
       pts.push(
@@ -570,6 +576,9 @@ export function autoZones(
     zones.push({
       id: `auto-${q.id}`,
       auto: true,
+      kind: "obstruction",
+      evidence: hit.geometry ? "geometry-projection" : "bounds-projection",
+      sourceIds: [q.id],
       label: q.label,
       x: round1(hit.x0 * 100),
       y: round1(hit.y0 * 100),
@@ -685,6 +694,7 @@ function coverage(q, trianglesOf, { face, grid, inFace, local, reach }, box) {
     clampY = (v) => Math.min(face.h, Math.max(0, v));
   // Medida exata da peça, limitada ao trecho que a grade achou dentro da face
   return {
+    geometry: !!tris?.length,
     x0: clampX(Math.max(ex[0], (i0 - PAD - 1) * cell)),
     x1: clampX(Math.min(ex[1], (i1 - PAD + 2) * cell)),
     y0: clampY(Math.max(ex[2], (j0 - PAD - 1) * cell)),
@@ -703,6 +713,7 @@ export function mergeZones(zones) {
   const out = [];
   for (const z of [...zones].sort((a, b) => b.w * b.h - a.w * a.h)) {
     const twin = out.find((o) => {
+      if (zoneKind(o) !== zoneKind(z)) return false;
       const iw = Math.min(o.x + o.w, z.x + z.w) - Math.max(o.x, z.x);
       const ih = Math.min(o.y + o.h, z.y + z.h) - Math.max(o.y, z.y);
       return (
@@ -720,6 +731,7 @@ export function mergeZones(zones) {
     twin.w = round1(x1 - twin.x);
     twin.h = round1(y1 - twin.y);
     twin.merged = (twin.merged || 1) + 1;
+    twin.sourceIds = [...new Set([...(twin.sourceIds || [twin.id]), ...(z.sourceIds || [z.id])])];
   }
   return out
     .map((z) =>
@@ -1002,6 +1014,7 @@ export function buildArtSheet({ project, art, part, iso, preview }) {
     })
     .filter((z) => z.zw > 0 && z.zh > 0);
   zones.forEach((z, i) => {
+    const style = zoneStyle(z);
     const zr = {
       x0: X(z.zx),
       y0: Y(z.zy),
@@ -1009,8 +1022,10 @@ export function buildArtSheet({ project, art, part, iso, preview }) {
       y1: Y(z.zy + z.zh),
     };
     if (!shape) {
-      box(X(z.zx), Y(z.zy), z.zw * k, z.zh * k, CUT_FILL, CUT, 0.3);
-      for (const s2 of hatch(zr, null, 2.2)) line(...s2, 0.15, CUT);
+      box(X(z.zx), Y(z.zy), z.zw * k, z.zh * k, style.fill, style.color, 0.3);
+      if (zoneKind(z) === "cutout" && !z.requiresReview)
+        for (const s2 of hatch(zr, null, 2.2)) line(...s2, 0.15, style.color);
+      else rect(X(z.zx), Y(z.zy), z.zw * k, z.zh * k, 0.4, style.color, style.dash);
     } else {
       // Só o trecho dentro da arte: a área de corte não passa do contorno
       const mm = shape.map(toMm);
@@ -1021,9 +1036,10 @@ export function buildArtSheet({ project, art, part, iso, preview }) {
         [zr.x0, zr.y1, zr.x0, zr.y0],
       ];
       for (const e of edges)
-        for (const piece of clipToRings(e, mm)) line(...piece, 0.3, CUT);
-      for (const s2 of hatch(zr, null, 2.2))
-        for (const piece of clipToRings(s2, mm)) line(...piece, 0.15, CUT);
+        for (const piece of clipToRings(e, mm)) line(...piece, 0.3, style.color, style.dash);
+      if (zoneKind(z) === "cutout" && !z.requiresReview)
+        for (const s2 of hatch(zr, null, 2.2))
+          for (const piece of clipToRings(s2, mm)) line(...piece, 0.15, style.color);
     }
     const cx = X(z.zx + z.zw / 2),
       cy = Y(z.zy + z.zh / 2);
@@ -1031,9 +1047,9 @@ export function buildArtSheet({ project, art, part, iso, preview }) {
     const size = `${cm(z.zw)} × ${cm(z.zh)} cm`;
     const fitsName = z.zw * k >= name.length * 1.15 + 2 && z.zh * k >= 7;
     if (fitsName) {
-      text(cx, cy - 0.6, name, 2, { color: CUT, anchor: "middle", bold: true });
+      text(cx, cy - 0.6, name, 2, { color: style.color, anchor: "middle", bold: true });
       text(cx, cy + 2.6, `(${size})`, 1.8, {
-        color: CUT,
+        color: style.color,
         anchor: "middle",
         bold: true,
       });
@@ -1045,11 +1061,11 @@ export function buildArtSheet({ project, art, part, iso, preview }) {
         y: cy,
         r: 1.9,
         fill: "#ffffff",
-        color: CUT,
+        color: style.color,
         w: 0.25,
       });
       text(cx, cy + 0.75, String(i + 1), 2, {
-        color: CUT,
+        color: style.color,
         anchor: "middle",
         bold: true,
       });
@@ -1231,8 +1247,9 @@ export function buildArtSheet({ project, art, part, iso, preview }) {
   });
   y += 4.5;
   for (const [i, z] of (art.zones || []).slice(0, 8).entries()) {
-    text(sx, y, `${i + 1}. ${(z.label || "Área").slice(0, 24)}`, 1.9, {
-      color: CUT,
+    const style = zoneStyle(z);
+    text(sx, y, `${i + 1}. ${style.title} · ${(z.label || "Área").slice(0, 16)}`, 1.9, {
+      color: style.color,
       bold: true,
     });
     text(sx + sw, y, `${cm(z.w)}×${cm(z.h)} em ${cm(z.x)}, ${cm(z.y)}`, 1.7, {
@@ -1242,7 +1259,7 @@ export function buildArtSheet({ project, art, part, iso, preview }) {
     y += 3.6;
   }
   if (!(art.zones || []).length)
-    text(sx, y, "Nenhuma área de corte.", 1.9, { color: SOFT });
+    text(sx, y, "Nenhuma interferência.", 1.9, { color: SOFT });
   if (art.notes)
     text(sx, PAGE.h - M - 30, `Obs.: ${art.notes}`.slice(0, 60), 1.9);
 
@@ -1265,6 +1282,7 @@ export function buildArtSheet({ project, art, part, iso, preview }) {
     1.6,
     { color: SOFT },
   );
+  if (importNotice(project)) text(M, PAGE.h - 3, importNotice(project), 1.8, { color: CUT });
   return { items };
 }
 

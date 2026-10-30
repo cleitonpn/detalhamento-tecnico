@@ -4,6 +4,7 @@ import { getFirestore, FieldValue } from "firebase-admin/firestore";
 import { getStorage } from "firebase-admin/storage";
 import { createHash } from "node:crypto";
 import { packParts, unpackParts } from "./packing.js";
+import { checkConstructionHistory } from "./construction.js";
 import {
   assertId,
   checkProject,
@@ -209,6 +210,7 @@ export const dt_saveProject = endpoint(async (req) => {
       snapshot = await tx.get(ref),
       old = snapshot.data();
     checkVersion(req.data.expectedVersion, old?.version);
+    checkConstructionHistory(old, input);
     // Referências importadas não concedem acesso ao Studio nem à ordem de produção.
     saved = {
       schemaVersion: 1,
@@ -217,8 +219,11 @@ export const dt_saveProject = endpoint(async (req) => {
       client: cleanText(input.client),
       fair: cleanText(input.fair),
       sourceUnit: input.sourceUnit,
+      ...(input.importDiagnostics ? { importDiagnostics: input.importDiagnostics } : {}),
       parts: input.parts,
       materials: input.materials || [],
+      constructionCatalog: input.constructionCatalog || [],
+      constructionRecipes: input.constructionRecipes || [],
       file: input.file,
       integration: input.integration || null,
       version: (old?.version || 0) + 1,

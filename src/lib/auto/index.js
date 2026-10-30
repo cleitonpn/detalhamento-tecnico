@@ -1,7 +1,7 @@
 // Fase 1 da autonomia: memória (camada 2) + regras (camada 1) + semáforo.
 // O sistema pré-preenche tipo, material e revestimento; o humano só confere.
 //  🟢 verde: dá para aceitar em lote; 🟡 amarelo: conferir; 🔴 vermelho: decidir.
-import { partIssues, mergeMemory } from "../../domain/project.js";
+import { partIssues, mergeMemory, MATERIAL_REQUIRED, semanticRoleOf, destinationOf } from "../../domain/project.js";
 
 export { mergeMemory };
 import {
@@ -24,7 +24,7 @@ const sameAsAuto = (p) =>
 export const levelOf = (c) =>
   c >= 0.85 ? "green" : c >= 0.55 ? "yellow" : "red";
 export const LEVEL_LABEL = {
-  green: "Pronta para aceitar",
+  green: "Evidência forte; conferir campos",
   yellow: "Conferir",
   red: "Decidir",
 };
@@ -69,6 +69,8 @@ export function autoReview(
         source: "memory",
         reasons: [`${reason}${m.n > 1 ? ` (${m.n} vezes)` : ""}.`],
         name: nameKey(m.label) ? m.label : "",
+        conflicts: m.conflict ? ["Decisões anteriores divergentes para esta geometria."] : [],
+        materialConfidence: m.materialId ? confidence : 0,
       };
     };
     const rule = { ...classifyPart(part, ctx), source: "rules" };
@@ -91,16 +93,23 @@ export function autoReview(
       else auto = rule;
       if (model) auto = withLearning(auto, part, ctx, model, valid);
     }
+    if (rule.semanticRole && auto.kind !== rule.kind)
+      auto = {
+        ...rule,
+        conflicts: ["Identidade explícita diverge da memória/aprendizado: destino a confirmar."],
+      };
     // Uma regra forte (logo, arte, mesa, peça fora do stand…) não é atropelada por
     // uma decisão antiga: a peça volta para conferência
     if (
       auto.source !== "rules" &&
       auto.kind !== rule.kind &&
-      rule.confidence >= 0.85
+      (rule.typeConfidence ?? rule.confidence) >= 0.85
     )
       auto = {
         ...auto,
         confidence: Math.min(auto.confidence, 0.7),
+        typeConfidence: Math.min(auto.typeConfidence ?? auto.confidence, 0.7),
+        conflicts: [...(auto.conflicts || []), "Memória/aprendizado diverge das regras de identificação."],
         reasons: [
           ...auto.reasons.slice(0, 2),
           `As regras discordam: ${rule.reasons[0]}`,
@@ -117,10 +126,23 @@ export function autoReview(
       };
     auto.confidence = Math.max(
       0,
-      Math.min(1, Math.round(auto.confidence * 100) / 100),
+      Math.min(1, Math.round((auto.typeConfidence ?? auto.confidence) * 100) / 100),
     );
     if (auto.kind === "unclassified") auto.confidence = 0;
+    auto.engineVersion = "decision-2";
+    auto.scoreMeaning = "evidence";
+    auto.semanticRole ||= auto.kind === "furniture" ? "counter" : auto.kind;
+    auto.scores = {
+      type: auto.confidence,
+      material: auto.materialId ? (auto.materialConfidence ?? auto.confidence) : null,
+      dimensions: null,
+      construction: null,
+    };
     auto.level = levelOf(auto.confidence);
+    if (auto.level === "green" && (
+      auto.conflicts?.length ||
+      (MATERIAL_REQUIRED.has(auto.kind) && (!auto.materialId || auto.scores.material < 0.85))
+    )) auto.level = "yellow";
     // Pré-preenche só o que o humano ainda não mexeu (vazio ou igual à sugestão
     // anterior); vermelho fica para decidir
     const r = part.review;
@@ -141,8 +163,18 @@ export function autoReview(
       !nameKey(part.label) ||
       (part.auto?.name && part.label === part.auto.name);
     const label = autoLabel && auto.name ? auto.name : part.label;
+    const decisionChanged = part.auto && ["kind", "materialId", "finishId", "engineVersion"]
+      .some(key => part.auto[key] !== auto[key]);
+    const decisionHistory = decisionChanged
+      ? [...(part.decisionHistory || []), {
+          ...part.auto,
+          supersededAt: new Date().toISOString(),
+        }]
+      : part.decisionHistory;
     return {
       ...part,
+      ...(decisionHistory ? { decisionHistory } : {}),
+      originalLabel: part.originalLabel ?? (part.auto?.name === part.label ? "" : part.label),
       label,
       auto,
       suggestion: { kind: auto.kind, reason: auto.reasons[0] },
@@ -179,8 +211,10 @@ function withLearning(current, part, ctx, model, valid) {
         : learnedMaterial || current.materialId,
       finishId: learnedFinish || current.finishId,
       confidence: Math.min(0.97, 1 - (1 - current.confidence) * (1 - p)),
+      typeConfidence: Math.min(0.97, 1 - (1 - (current.typeConfidence ?? current.confidence)) * (1 - p)),
+      materialConfidence: current.materialMeasured ? current.materialConfidence : learnedMaterial ? p : current.materialConfidence,
       source: current.source === "rules" ? "rules+learning" : current.source,
-      reasons: [current.reasons[0], reason, ...current.reasons.slice(1)].slice(
+      reasons: [current.reasons[0], reason, ...(learnedMaterial && learnedMaterial !== current.materialId ? [] : current.reasons.slice(1))].slice(
         0,
         3,
       ),
@@ -192,6 +226,8 @@ function withLearning(current, part, ctx, model, valid) {
       finishId: learnedFinish,
       confidence: p * 0.95,
       source: "learning",
+      materialConfidence: learnedMaterial ? p : 0,
+      conflicts: current.kind !== "unclassified" ? ["Aprendizado e regras sugerem tipos diferentes."] : [],
       reasons: [
         reason,
         current.kind !== "unclassified"
@@ -204,6 +240,8 @@ function withLearning(current, part, ctx, model, valid) {
     return {
       ...current,
       confidence: current.confidence * 0.85,
+      typeConfidence: (current.typeConfidence ?? current.confidence) * 0.85,
+      conflicts: [...(current.conflicts || []), "Aprendizado sugere outro tipo."],
       reasons: [
         ...current.reasons.slice(0, 2),
         `O aprendizado sugere outro tipo (${Math.round(p * 100)}%): confira.`,
@@ -214,26 +252,24 @@ function withLearning(current, part, ctx, model, valid) {
 
 /**
  * Aceita em lote as peças verdes que ainda estão como o sistema sugeriu:
- * confirma as medidas e valida. Devolve o projeto e quantas foram aceitas.
+ * Exige conferência dimensional prévia. Lote não gera exemplos de treino.
  */
 export function acceptGreen(project) {
   let count = 0;
   const parts = project.parts.map((p) => {
-    if (p.review.confirmed || p.auto?.level !== "green" || !sameAsAuto(p))
-      return p;
-    const next = { ...p, review: { ...p.review, dimensionsConfirmed: true } };
-    if (partIssues(next).length) return p;
+    if (!canAcceptGreen(p)) return p;
     count++;
-    return { ...next, review: { ...next.review, confirmed: true } };
+    return { ...p, review: { ...p.review, confirmed: true, confirmationMethod: "batch" } };
   });
   return { project: { ...project, status: "review", parts }, count };
 }
 
 /** Peças verdes que ainda podem ser aceitas em lote. */
-export const greenPending = (project) =>
-  (project?.parts || []).filter(
-    (p) => !p.review.confirmed && p.auto?.level === "green" && sameAsAuto(p),
-  ).length;
+const canAcceptGreen = (p) =>
+  !p.review.confirmed && p.auto?.level === "green" && sameAsAuto(p) &&
+  !p.auto.conflicts?.length && !partIssues(p).length;
+
+export const greenPending = (project) => (project?.parts || []).filter(canAcceptGreen).length;
 
 /**
  * Memória do próprio projeto: decisões já validadas nele. Junta-se à memória do
@@ -272,16 +308,21 @@ export function refreshAuto(
  */
 export function trainingSamples(project, parts) {
   const ctx = standContext(project.parts);
-  return groupIdentical(parts.filter((p) => p.review?.confirmed)).map((g) =>
+  return groupIdentical(parts.filter(learningEligible)).map((g) =>
     sampleOf(g.part, ctx, project),
   );
 }
+
+// O modelo legado aprende só kind/material/finish: não transformar uma exceção
+// de identidade/destino em um rótulo incompleto para os próximos projetos.
+const learningEligible = (p) => p.review?.confirmed &&
+  p.review.confirmationMethod !== "batch" && !p.review.semanticRole && !p.review.destination;
 
 /** Decisões humanas para gravar na memória (só peças validadas). */
 export function memoryEntries(parts) {
   const out = [];
   for (const p of parts) {
-    if (!p.review?.confirmed || !p.fingerprint) continue;
+    if (!learningEligible(p) || !p.fingerprint) continue;
     for (const key of Object.values(p.fingerprint))
       if (key)
         out.push({
@@ -304,7 +345,7 @@ export function groupIdentical(parts) {
   for (const p of parts) {
     const r = p.review || {};
     const key = p.fingerprint?.exact
-      ? `${p.fingerprint.exact}|${r.confirmed ? 1 : 0}|${r.kind}|${r.materialId}|${r.finishId}`
+      ? `${p.fingerprint.exact}|${r.confirmed ? 1 : 0}|${r.kind}|${r.materialId}|${r.finishId}|${destinationOf(p)}|${semanticRoleOf(p)}|${r.importReviewed ? 1 : 0}|${JSON.stringify(r.construction || null)}|${r.constructionNeedsReview ? 1 : 0}|${JSON.stringify(r.identityEvidence || null)}|${r.identityNeedsReview ? 1 : 0}`
       : p.id;
     if (!groups.has(key)) groups.set(key, { key, part: p, parts: [] });
     groups.get(key).parts.push(p);

@@ -1,6 +1,17 @@
 * {
   box-sizing: border-box;
 }
+.modal.face-picker { width: min(960px, 96vw); max-width: 960px; }
+.face-picker-canvas { height: min(55vh, 520px); min-height: 260px; margin: 12px 0; }
+.face-picker-views { display: flex; gap: 6px; flex-wrap: wrap; }
+.construction-panel { margin-top: 18px; border-top: 1px solid var(--border, #334155); padding-top: 14px; }
+.construction-panel summary { cursor: pointer; font-weight: 600; }
+.construction-panel .field { display: block; margin-top: 10px; }
+.construction-panel input, .construction-panel select, .construction-panel textarea { width: 100%; }
+.construction-panel .check-field input { width: auto; }
+.proposal-legend { position: absolute; bottom: 72px; left: 20px; right: 20px; padding: 12px; color: #fdba74; background: #172132ed; border: 1px solid #fb923c; border-radius: 8px; font-size: 12px; }
+.proposal-legend button { margin-left: 12px; }
+.proposal-legend .text-button { color: #fdba74; }
 html,
 body,
 #root {

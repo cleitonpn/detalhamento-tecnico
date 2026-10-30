@@ -16,6 +16,8 @@ import {
   addStations,
 } from "./techdraw.js";
 import { classifyLines, isometricImage } from "./hlr.js";
+import { importNotice } from "./importDiagnostics.js";
+import { analyzeSurfaceSections } from "./construction/sections.js";
 
 export const PAGE = { w: 297, h: 210 };
 const M = 8; // margem
@@ -203,6 +205,7 @@ export function analyzePart(part, meshMap, sourceUnit) {
     simplified,
     freeCurves,
     organic,
+    surfaceSections: analyzeSurfaceSections(triangles, dims),
   };
 }
 
@@ -921,6 +924,7 @@ export function buildSheet({
     1.7,
     { color: SOFT },
   );
+  if (importNotice(project)) text(M, PAGE.h - 3, importNotice(project), 1.8, { color: DIM });
   return { items, scale };
 }
 
@@ -1103,6 +1107,7 @@ export function buildOverview({
     1.7,
     { color: SOFT },
   );
+  if (importNotice(project)) text(M, PAGE.h - 3, importNotice(project), 1.8, { color: DIM });
   return { items };
 }
 
